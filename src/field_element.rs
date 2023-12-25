@@ -222,6 +222,38 @@ impl ops::Mul<FieldElement> for i64 {
     }
 }
 
+impl ops::Mul<&FieldElement> for BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: &FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self, rhs.prime.clone()).unwrap() * rhs
+    }
+}
+
+impl ops::Mul<FieldElement> for BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self, rhs.clone().prime).unwrap() * rhs
+    }
+}
+
+impl ops::Mul<&FieldElement> for &BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: &FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self.clone(), rhs.prime.clone()).unwrap() * rhs
+    }
+}
+
+impl ops::Mul<FieldElement> for &BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self.clone(), rhs.clone().prime).unwrap() * rhs
+    }
+}
+
 // 根据费马小定理： n^(p-1) % p = 1
 // 有限域内的除法：
 // a / b = a * b^-1 = a * b^-1 * b^(p-1) = a * b^(p-2)
@@ -233,11 +265,8 @@ impl ops::Div<FieldElement> for FieldElement {
             panic!("不同阶的元素不能相除！");
         }
 
-        let num: BigInt = self.num * rhs.num.pow(&(self.prime.to_biguint().unwrap() - 2u32));
-        FieldElement {
-            num: num.rem_euclid(&self.prime),
-            prime: self.prime,
-        }
+        // 注意这里的pow运算不能用BigInt内置的，必须使用FieldElement来运算，否则会溢出
+        self.num * rhs.pow(&(self.prime - 2u32))
     }
 }
 

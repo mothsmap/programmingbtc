@@ -1,18 +1,13 @@
+use super::field_element::FieldElement;
+use crate::utils::new_bigint;
 use anyhow::bail;
 use anyhow::Result;
-use num::Zero;
-use num:: BigInt;
 use num::traits::Pow;
+use num::BigInt;
+use num::One;
+use num::Zero;
 use std::fmt;
 use std::ops;
-
-// use crate::utils::new_bigint;
-
-use super::field_element::FieldElement;
-
-// const P: BigInt = new_bigint(2).pow(256u32) - new_bigint(2).pow(32u32) - 977;
-// const A: FieldElement = FieldElement::from_bigint(BigInt::zero(), P).unwrap();
-const P: BigInt = BigInt::from_bytes_le(num::bigint::Sign::Plus, vec![101, 4].as_slice());
 
 // 椭圆曲线上的点
 // 椭圆曲线方程： y^2 = x^3 + ax + b
@@ -26,7 +21,12 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn from(x: Option<FieldElement>, y: Option<FieldElement>, a: FieldElement, b: FieldElement) -> Result<Self> {
+    pub fn from(
+        x: Option<FieldElement>,
+        y: Option<FieldElement>,
+        a: FieldElement,
+        b: FieldElement,
+    ) -> Result<Self> {
         if x.is_none() && y.is_none() {
             return Ok(Point {
                 x: None,
@@ -178,7 +178,26 @@ impl ops::Add<&Point> for &Point {
     }
 }
 
-impl ops::Mul<&Point> for u64 {
+impl ops::Mul<Point> for BigInt {
+    type Output = Point;
+
+    fn mul(self, rhs: Point) -> Point {
+        let mut coef = self;
+        let mut current = rhs;
+        // 从无穷远点开始
+        let mut result = Point::from(None, None, current.a.clone(), current.b.clone()).unwrap();
+        while coef.clone() != BigInt::zero() {
+            if coef.clone() & BigInt::one() == BigInt::one() {
+                result = &result + &current;
+            }
+            current = &current + &current;
+            coef >>= 1;
+        }
+        result
+    }
+}
+
+impl ops::Mul<&Point> for BigInt {
     type Output = Point;
 
     fn mul(self, rhs: &Point) -> Point {
@@ -186,23 +205,19 @@ impl ops::Mul<&Point> for u64 {
     }
 }
 
+impl ops::Mul<&Point> for u64 {
+    type Output = Point;
+
+    fn mul(self, rhs: &Point) -> Point {
+        new_bigint(self as i64).mul(rhs.clone())
+    }
+}
+
 impl ops::Mul<Point> for u64 {
     type Output = Point;
 
     fn mul(self, rhs: Point) -> Point {
-        let mut coef = self;
-        
-        let mut current = rhs;
-        // 从无穷远点开始
-        let mut result = Point::from(None, None, current.a.clone(), current.b.clone()).unwrap();
-        while coef != 0 {
-            if coef & 1 == 1 {
-                result = &result + &current;
-            }
-            current = &current + &current;
-            coef >>= 1;
-        }
-        result
+        new_bigint(self as i64).mul(rhs)
     }
 }
 
@@ -216,13 +231,38 @@ mod tests {
         let a = FieldElement::from_i64(0, prime).unwrap();
         let b = FieldElement::from_i64(7, prime).unwrap();
         let valid_pts = vec![
-            Point::from(Some(FieldElement::from_i64(192, prime).unwrap()), Some(FieldElement::from_i64(105, prime).unwrap()), a.clone(), b.clone()),
-            Point::from(Some(FieldElement::from_i64(17, prime).unwrap()), Some(FieldElement::from_i64(56, prime).unwrap()), a.clone(), b.clone()),
-            Point::from(Some(FieldElement::from_i64(1, prime).unwrap()), Some(FieldElement::from_i64(193, prime).unwrap()), a.clone(), b.clone()),
+            Point::from(
+                Some(FieldElement::from_i64(192, prime).unwrap()),
+                Some(FieldElement::from_i64(105, prime).unwrap()),
+                a.clone(),
+                b.clone(),
+            ),
+            Point::from(
+                Some(FieldElement::from_i64(17, prime).unwrap()),
+                Some(FieldElement::from_i64(56, prime).unwrap()),
+                a.clone(),
+                b.clone(),
+            ),
+            Point::from(
+                Some(FieldElement::from_i64(1, prime).unwrap()),
+                Some(FieldElement::from_i64(193, prime).unwrap()),
+                a.clone(),
+                b.clone(),
+            ),
         ];
         let invalid_pts = vec![
-            Point::from(Some(FieldElement::from_i64(200, prime).unwrap()), Some(FieldElement::from_i64(119, prime).unwrap()), a.clone(), b.clone()),
-            Point::from(Some(FieldElement::from_i64(42, prime).unwrap()), Some(FieldElement::from_i64(99, prime).unwrap()), a.clone(), b.clone()),
+            Point::from(
+                Some(FieldElement::from_i64(200, prime).unwrap()),
+                Some(FieldElement::from_i64(119, prime).unwrap()),
+                a.clone(),
+                b.clone(),
+            ),
+            Point::from(
+                Some(FieldElement::from_i64(42, prime).unwrap()),
+                Some(FieldElement::from_i64(99, prime).unwrap()),
+                a.clone(),
+                b.clone(),
+            ),
         ];
         for pt in valid_pts {
             assert!(pt.is_ok());
@@ -245,7 +285,7 @@ mod tests {
         let y2 = FieldElement::from_i64(139, prime).unwrap();
         let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
         let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
-        println!("{} + {} = {}", &p1, &p2, &p1+&p2);
+        println!("{} + {} = {}", &p1, &p2, &p1 + &p2);
 
         // (47 71) + (17, 56)
         let x1 = FieldElement::from_i64(47, prime).unwrap();
@@ -254,7 +294,7 @@ mod tests {
         let y2 = FieldElement::from_i64(56, prime).unwrap();
         let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
         let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
-        println!("{} + {} = {}", &p1, &p2, &p1+&p2);
+        println!("{} + {} = {}", &p1, &p2, &p1 + &p2);
 
         // （143， 98) + (76, 66)
         let x1 = FieldElement::from_i64(143, prime).unwrap();
@@ -263,7 +303,7 @@ mod tests {
         let y2 = FieldElement::from_i64(66, prime).unwrap();
         let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
         let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
-        println!("{} + {} = {}", &p1, &p2, &p1+&p2);
+        println!("{} + {} = {}", &p1, &p2, &p1 + &p2);
     }
 
     #[test]
@@ -275,6 +315,6 @@ mod tests {
         let x1 = FieldElement::from_i64(15, prime).unwrap();
         let y1 = FieldElement::from_i64(86, prime).unwrap();
         let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
-        println!("{}", 7*p1);
+        println!("{}", 7 * p1);
     }
 }
