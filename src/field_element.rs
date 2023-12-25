@@ -34,6 +34,7 @@ impl fmt::Display for FieldElement {
     }
 }
 
+// 操作符重载: pow
 impl Pow<BigInt> for FieldElement {
     type Output = FieldElement;
 
@@ -89,6 +90,7 @@ impl Pow<i64> for &FieldElement {
     }
 }
 
+// 操作符重载: +
 impl ops::Add<FieldElement> for FieldElement {
     type Output = FieldElement;
 
@@ -128,6 +130,7 @@ impl ops::Add<&FieldElement> for &FieldElement {
     }
 }
 
+// 操作符重载: -
 impl ops::Sub<FieldElement> for FieldElement {
     type Output = FieldElement;
 
@@ -167,6 +170,7 @@ impl ops::Sub<&FieldElement> for &FieldElement {
     }
 }
 
+// 操作符重载: *
 impl ops::Mul<FieldElement> for FieldElement {
     type Output = FieldElement;
 
@@ -253,6 +257,8 @@ impl ops::Mul<FieldElement> for &BigInt {
         FieldElement::from_bigint(self.clone(), rhs.clone().prime).unwrap() * rhs
     }
 }
+
+// 操作符重载: /
 
 // 根据费马小定理： n^(p-1) % p = 1
 // 有限域内的除法：

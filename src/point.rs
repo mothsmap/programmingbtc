@@ -1,7 +1,6 @@
 use super::field_element::FieldElement;
 use crate::utils::new_bigint;
-use anyhow::bail;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use num::traits::Pow;
 use num::BigInt;
 use num::One;
@@ -9,7 +8,7 @@ use num::Zero;
 use std::fmt;
 use std::ops;
 
-// 椭圆曲线上的点
+// 有限域上椭圆曲线上的点
 // 椭圆曲线方程： y^2 = x^3 + ax + b
 #[derive(Debug, PartialEq, Clone)]
 pub struct Point {
@@ -77,6 +76,7 @@ impl fmt::Display for Point {
     }
 }
 
+// 操作符重载：+
 impl ops::Add<Point> for Point {
     type Output = Self;
 
@@ -178,6 +178,7 @@ impl ops::Add<&Point> for &Point {
     }
 }
 
+// 操作符重载：*
 impl ops::Mul<Point> for BigInt {
     type Output = Point;
 
@@ -186,6 +187,7 @@ impl ops::Mul<Point> for BigInt {
         let mut current = rhs;
         // 从无穷远点开始
         let mut result = Point::from(None, None, current.a.clone(), current.b.clone()).unwrap();
+        // 二进制展开
         while coef.clone() != BigInt::zero() {
             if coef.clone() & BigInt::one() == BigInt::one() {
                 result = &result + &current;
