@@ -11,7 +11,7 @@ use std::ops;
 // 有限域上椭圆曲线上的点
 // 椭圆曲线方程： y^2 = x^3 + ax + b
 #[derive(Debug, PartialEq, Clone)]
-pub struct Point {
+pub struct FieldPoint {
     // x, y 为 None 表示无穷远点
     pub x: Option<FieldElement>,
     pub y: Option<FieldElement>,
@@ -19,7 +19,7 @@ pub struct Point {
     pub b: FieldElement,
 }
 
-impl Point {
+impl FieldPoint {
     pub fn from(
         x: Option<FieldElement>,
         y: Option<FieldElement>,
@@ -27,7 +27,7 @@ impl Point {
         b: FieldElement,
     ) -> Result<Self> {
         if x.is_none() && y.is_none() {
-            return Ok(Point {
+            return Ok(FieldPoint {
                 x: None,
                 y: None,
                 a,
@@ -45,7 +45,7 @@ impl Point {
             bail!("点({}, {})不在曲线上！", x, y);
         }
 
-        Ok(Point {
+        Ok(FieldPoint {
             x: Some(x),
             y: Some(y),
             a,
@@ -58,14 +58,14 @@ impl Point {
     }
 }
 
-impl fmt::Display for Point {
+impl fmt::Display for FieldPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_infinity() {
-            write!(f, "Point(infinity)")
+            write!(f, "FieldPoint(infinity)")
         } else {
             write!(
                 f,
-                "Point({},{})_{}_{} FieldElement({})",
+                "FieldPoint({},{})_{}_{} FieldElement({})",
                 &self.x.clone().unwrap().num,
                 &self.y.clone().unwrap().num,
                 &self.a.num,
@@ -77,7 +77,7 @@ impl fmt::Display for Point {
 }
 
 // 操作符重载：+
-impl ops::Add<Point> for Point {
+impl ops::Add<FieldPoint> for FieldPoint {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
@@ -95,7 +95,7 @@ impl ops::Add<Point> for Point {
 
         // case 2: 关于x轴对称的两个点相加等于无穷远点
         if self.x == other.x && self.y != other.y {
-            return Point {
+            return FieldPoint {
                 x: None,
                 y: None,
                 a: self.a,
@@ -116,7 +116,7 @@ impl ops::Add<Point> for Point {
             let s = (&y2 - &y1) / (&x2 - &x1);
             let x3 = (&s).pow(2) - &x1 - &x2;
             let y3 = s * (&x1 - &x3) - &y1;
-            return Point {
+            return FieldPoint {
                 x: Some(x3),
                 y: Some(y3),
                 a: self.a,
@@ -126,7 +126,7 @@ impl ops::Add<Point> for Point {
 
         // case 4: 两个点相同(self == other)，y为0，无法计算斜率
         if self.y.clone().unwrap().num == BigInt::zero() {
-            return Point {
+            return FieldPoint {
                 x: None,
                 y: None,
                 a: self.a,
@@ -145,7 +145,7 @@ impl ops::Add<Point> for Point {
         let s = (3 * (&x1).pow(2) + &self.a) / (2 * &y1);
         let x3 = (&s).pow(2) - 2 * &x1;
         let y3 = s * (&x1 - &x3) - y1;
-        return Point {
+        return FieldPoint {
             x: Some(x3),
             y: Some(y3),
             a: self.a,
@@ -154,7 +154,7 @@ impl ops::Add<Point> for Point {
     }
 }
 
-impl ops::Add<&Point> for Point {
+impl ops::Add<&FieldPoint> for FieldPoint {
     type Output = Self;
 
     fn add(self, other: &Self) -> Self {
@@ -162,31 +162,31 @@ impl ops::Add<&Point> for Point {
     }
 }
 
-impl ops::Add<Point> for &Point {
-    type Output = Point;
+impl ops::Add<FieldPoint> for &FieldPoint {
+    type Output = FieldPoint;
 
-    fn add(self, other: Point) -> Self::Output {
+    fn add(self, other: FieldPoint) -> Self::Output {
         self.clone().add(other)
     }
 }
 
-impl ops::Add<&Point> for &Point {
-    type Output = Point;
+impl ops::Add<&FieldPoint> for &FieldPoint {
+    type Output = FieldPoint;
 
-    fn add(self, other: &Point) -> Self::Output {
+    fn add(self, other: &FieldPoint) -> Self::Output {
         self.clone().add(other.clone())
     }
 }
 
 // 操作符重载：*
-impl ops::Mul<Point> for BigInt {
-    type Output = Point;
+impl ops::Mul<FieldPoint> for BigInt {
+    type Output = FieldPoint;
 
-    fn mul(self, rhs: Point) -> Point {
+    fn mul(self, rhs: FieldPoint) -> FieldPoint {
         let mut coef = self;
         let mut current = rhs;
         // 从无穷远点开始
-        let mut result = Point::from(None, None, current.a.clone(), current.b.clone()).unwrap();
+        let mut result = FieldPoint::from(None, None, current.a.clone(), current.b.clone()).unwrap();
         // 二进制展开
         while coef.clone() != BigInt::zero() {
             if coef.clone() & BigInt::one() == BigInt::one() {
@@ -199,26 +199,26 @@ impl ops::Mul<Point> for BigInt {
     }
 }
 
-impl ops::Mul<&Point> for BigInt {
-    type Output = Point;
+impl ops::Mul<&FieldPoint> for BigInt {
+    type Output = FieldPoint;
 
-    fn mul(self, rhs: &Point) -> Point {
+    fn mul(self, rhs: &FieldPoint) -> FieldPoint {
         self.mul(rhs.clone())
     }
 }
 
-impl ops::Mul<&Point> for u64 {
-    type Output = Point;
+impl ops::Mul<&FieldPoint> for u64 {
+    type Output = FieldPoint;
 
-    fn mul(self, rhs: &Point) -> Point {
+    fn mul(self, rhs: &FieldPoint) -> FieldPoint {
         new_bigint(self as i64).mul(rhs.clone())
     }
 }
 
-impl ops::Mul<Point> for u64 {
-    type Output = Point;
+impl ops::Mul<FieldPoint> for u64 {
+    type Output = FieldPoint;
 
-    fn mul(self, rhs: Point) -> Point {
+    fn mul(self, rhs: FieldPoint) -> FieldPoint {
         new_bigint(self as i64).mul(rhs)
     }
 }
@@ -233,19 +233,19 @@ mod tests {
         let a = FieldElement::from_i64(0, prime).unwrap();
         let b = FieldElement::from_i64(7, prime).unwrap();
         let valid_pts = vec![
-            Point::from(
+            FieldPoint::from(
                 Some(FieldElement::from_i64(192, prime).unwrap()),
                 Some(FieldElement::from_i64(105, prime).unwrap()),
                 a.clone(),
                 b.clone(),
             ),
-            Point::from(
+            FieldPoint::from(
                 Some(FieldElement::from_i64(17, prime).unwrap()),
                 Some(FieldElement::from_i64(56, prime).unwrap()),
                 a.clone(),
                 b.clone(),
             ),
-            Point::from(
+            FieldPoint::from(
                 Some(FieldElement::from_i64(1, prime).unwrap()),
                 Some(FieldElement::from_i64(193, prime).unwrap()),
                 a.clone(),
@@ -253,13 +253,13 @@ mod tests {
             ),
         ];
         let invalid_pts = vec![
-            Point::from(
+            FieldPoint::from(
                 Some(FieldElement::from_i64(200, prime).unwrap()),
                 Some(FieldElement::from_i64(119, prime).unwrap()),
                 a.clone(),
                 b.clone(),
             ),
-            Point::from(
+            FieldPoint::from(
                 Some(FieldElement::from_i64(42, prime).unwrap()),
                 Some(FieldElement::from_i64(99, prime).unwrap()),
                 a.clone(),
@@ -285,8 +285,8 @@ mod tests {
         let y1 = FieldElement::from_i64(142, prime).unwrap();
         let x2 = FieldElement::from_i64(60, prime).unwrap();
         let y2 = FieldElement::from_i64(139, prime).unwrap();
-        let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
-        let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
+        let p1 = FieldPoint::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
+        let p2 = FieldPoint::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
         println!("{} + {} = {}", &p1, &p2, &p1 + &p2);
 
         // (47 71) + (17, 56)
@@ -294,8 +294,8 @@ mod tests {
         let y1 = FieldElement::from_i64(71, prime).unwrap();
         let x2 = FieldElement::from_i64(17, prime).unwrap();
         let y2 = FieldElement::from_i64(56, prime).unwrap();
-        let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
-        let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
+        let p1 = FieldPoint::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
+        let p2 = FieldPoint::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
         println!("{} + {} = {}", &p1, &p2, &p1 + &p2);
 
         // （143， 98) + (76, 66)
@@ -303,8 +303,8 @@ mod tests {
         let y1 = FieldElement::from_i64(98, prime).unwrap();
         let x2 = FieldElement::from_i64(76, prime).unwrap();
         let y2 = FieldElement::from_i64(66, prime).unwrap();
-        let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
-        let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
+        let p1 = FieldPoint::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
+        let p2 = FieldPoint::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
         println!("{} + {} = {}", &p1, &p2, &p1 + &p2);
     }
 
@@ -316,7 +316,7 @@ mod tests {
 
         let x1 = FieldElement::from_i64(15, prime).unwrap();
         let y1 = FieldElement::from_i64(86, prime).unwrap();
-        let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
+        let p1 = FieldPoint::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
         println!("{}", 7 * p1);
     }
 }
