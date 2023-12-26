@@ -4,8 +4,8 @@ use num::{
     bigint::BigInt,
     traits::{Euclid, One, Pow, Zero},
 };
-use std::fmt;
 use std::ops;
+use std::{fmt, str::FromStr};
 
 // 有限域元素
 #[derive(Debug, PartialEq, Clone)]
