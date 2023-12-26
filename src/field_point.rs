@@ -186,7 +186,8 @@ impl ops::Mul<FieldPoint> for BigInt {
         let mut coef = self;
         let mut current = rhs;
         // 从无穷远点开始
-        let mut result = FieldPoint::from(None, None, current.a.clone(), current.b.clone()).unwrap();
+        let mut result =
+            FieldPoint::from(None, None, current.a.clone(), current.b.clone()).unwrap();
         // 二进制展开
         while coef.clone() != BigInt::zero() {
             if coef.clone() & BigInt::one() == BigInt::one() {

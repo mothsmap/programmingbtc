@@ -1,6 +1,5 @@
 use super::*;
-use anyhow::{bail, Result};
-use num::{BigInt, traits::Euclid, Zero};
+use num::{traits::Euclid, BigInt, Zero};
 
 // 有限循环群
 pub struct FiniteCyclicGroup {
@@ -16,7 +15,7 @@ pub struct FiniteCyclicGroup {
 }
 
 impl FiniteCyclicGroup {
-    pub fn from_secp256k1() -> Result<Self> {
+    pub fn from_secp256k1() -> Self {
         // P = 2**256 - 2**32 - 977
         pub const P: &str =
             "115792089237316195423570985008687907853269984665640564039457584007908834671663";
@@ -34,19 +33,19 @@ impl FiniteCyclicGroup {
         let gx = FieldElement::from_bigint(BigInt::from_str(GX).unwrap(), prime.clone()).unwrap();
         let gy = FieldElement::from_bigint(BigInt::from_str(GY).unwrap(), prime.clone()).unwrap();
 
-        Ok(FiniteCyclicGroup {
+        FiniteCyclicGroup {
             a: BigInt::zero(),
             b: new_bigint(7),
             p: prime,
             g: FieldPoint::from(Some(gx), Some(gy), a, b).unwrap(),
             n: BigInt::from_str(N).unwrap(),
-        })
+        }
     }
 
-    pub fn new(a: BigInt, b: BigInt, p: BigInt, x: BigInt, y: BigInt, n: BigInt) -> Result<Self> {
+    pub fn new(a: BigInt, b: BigInt, p: BigInt, x: BigInt, y: BigInt, n: BigInt) -> Self {
         // 生成点必须在曲线上
         if (&y).pow(2u32).rem_euclid(&p) != ((&x).pow(3u32) + &a * &x + &b).rem_euclid(&p) {
-            bail!("生成点不在曲线上！");
+            panic!("生成点不在曲线上！");
         }
 
         let a2 = FieldElement::from_bigint(a.clone(), p.clone()).unwrap();
@@ -55,13 +54,13 @@ impl FiniteCyclicGroup {
         let x2 = FieldElement::from_bigint(x, p.clone()).unwrap();
         let y2 = FieldElement::from_bigint(y, p.clone()).unwrap();
 
-        Ok(FiniteCyclicGroup {
+        FiniteCyclicGroup {
             a: a,
             b: b,
             p: p,
             g: FieldPoint::from(Some(x2), Some(y2), a2, b2).unwrap(),
             n: n,
-        })
+        }
     }
 
     pub fn generate(&self, n: &BigInt) -> FieldPoint {
@@ -82,7 +81,6 @@ impl FiniteCyclicGroup {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use num::traits::Euclid;
@@ -91,18 +89,23 @@ mod tests {
 
     #[test]
     pub fn test_secp256k1_parameters() {
-        let group_result = FiniteCyclicGroup::from_secp256k1();
-        // generator point on curve
-        assert!(group_result.is_ok());
+        // generator point on curve, or crash
+        let group = FiniteCyclicGroup::from_secp256k1();
 
-        let group = group_result.unwrap();
         let last_pt = group.generate(&group.n);
         assert!(last_pt.is_infinity());
     }
 
     #[test]
     pub fn test_zero_prove_concept() {
-        let group = FiniteCyclicGroup::from_secp256k1().unwrap();
+        // 0知识证明的核心在于求解下面这个离散对数问题：
+        // uG + vP = kG
+        // 只有知道私钥e的人才能让等式左边等于右边(因为P = eG)
+        // 通过把签名的原因(z)和签名的目标(r)嵌入到左边，隐含着手握私钥的人出于原因z，完成了目标r
+        // 因此构造:
+        // u = z/s; v = r/s
+
+        let group = FiniteCyclicGroup::from_secp256k1();
         let z = "0xbc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423";
         let big_z = utils::bigint_from_hex(&z[2..]).unwrap();
         let r = "0x37206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6";
@@ -118,6 +121,7 @@ mod tests {
         let u = (&big_z * &s_inv).rem_euclid(&group.n);
         // v = r/s
         let v = (&big_r * &s_inv).rem_euclid(&group.n);
+
         // uG + vP = kG
         let ug = group.generate(&u);
         let vp = group.generate_from_point(

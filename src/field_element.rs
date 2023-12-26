@@ -4,7 +4,7 @@ use num::{
     bigint::BigInt,
     traits::{Euclid, One, Pow, Zero},
 };
-use std::{ops, fmt};
+use std::{fmt, ops};
 
 // 有限域元素
 #[derive(Debug, PartialEq, Clone)]
