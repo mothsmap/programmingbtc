@@ -35,7 +35,7 @@ impl PrivateKey {
         // z/s + er/s = k
         // s = (z + er) / k
         let k_inv = (&k).modpow(&(&self.group.n - 2), &self.group.n);
-        let s = ((&z + &r * self.secrect) * &k_inv).rem_euclid(&self.group.n);
+        let s = ((&z + &r * &self.secrect) * &k_inv).rem_euclid(&self.group.n);
         if s > &self.group.n / 2 {
             Signature {
                 r,
