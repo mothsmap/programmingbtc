@@ -2,6 +2,7 @@ use super::*;
 use num::{traits::Euclid, BigInt, Zero};
 
 // 有限循环群
+#[derive(Debug, PartialEq, Clone)]
 pub struct FiniteCyclicGroup {
     // y^2 = x^3 + ax + b
     pub a: BigInt,
@@ -83,7 +84,7 @@ impl FiniteCyclicGroup {
 
 #[cfg(test)]
 mod tests {
-    use num::traits::Euclid;
+    use num::{traits::Euclid, FromPrimitive};
 
     use super::*;
 

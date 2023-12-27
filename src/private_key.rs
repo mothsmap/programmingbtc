@@ -1,28 +1,34 @@
+use anyhow::{bail, Result};
 use num::{
     traits::{Euclid, ToBytes},
-    BigInt, One, Zero,
+    BigInt, One,
 };
 
 use crate::{
     field_point::FieldPoint,
     finite_cyclic_group::FiniteCyclicGroup,
     signature::Signature,
-    utils::{bigint_to_bytes, encode_hex, hmac_sha256},
+    utils::{bigint_to_bytes, decode_base58, encode_base58, encode_hex, hash256, hmac_sha256},
 };
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct PrivateKey {
-    pub secrect: BigInt,
+    pub secret: BigInt,
     pub point: FieldPoint,
     pub group: FiniteCyclicGroup,
+    compressed: bool, // 是否为SEC压缩格式
+    testnet: bool,    // 是否为测试网的地址
 }
 
 impl PrivateKey {
-    pub fn new(secrect: BigInt) -> PrivateKey {
+    pub fn new(secret: BigInt, compressed: bool, testnet: bool) -> PrivateKey {
         let group = FiniteCyclicGroup::from_secp256k1();
         PrivateKey {
-            secrect: secrect.clone(),
-            point: group.generate(&secrect),
+            secret: secret.clone(),
+            point: group.generate(&secret),
             group,
+            compressed,
+            testnet,
         }
     }
 
@@ -35,7 +41,7 @@ impl PrivateKey {
         // z/s + er/s = k
         // s = (z + er) / k
         let k_inv = (&k).modpow(&(&self.group.n - 2), &self.group.n);
-        let s = ((&z + &r * &self.secrect) * &k_inv).rem_euclid(&self.group.n);
+        let s = ((&z + &r * &self.secret) * &k_inv).rem_euclid(&self.group.n);
         if s > &self.group.n / 2 {
             Signature {
                 r,
@@ -58,12 +64,12 @@ impl PrivateKey {
         };
 
         let z_bytes = bigint_to_bytes(&reduced_z, 32);
-        let secrect_bytes = bigint_to_bytes(&self.secrect, 32);
+        let secret_bytes = bigint_to_bytes(&self.secret, 32);
 
         let mut data1: Vec<u8> = vec![];
         data1.append(&mut v.clone());
         data1.push(0);
-        data1.append(&mut secrect_bytes.clone());
+        data1.append(&mut secret_bytes.clone());
         data1.append(&mut z_bytes.clone());
         k = hmac_sha256(&k, &data1);
         v = hmac_sha256(&k, &v);
@@ -71,7 +77,7 @@ impl PrivateKey {
         let mut data2: Vec<u8> = vec![];
         data2.append(&mut v.clone());
         data2.push(1);
-        data2.append(&mut secrect_bytes.clone());
+        data2.append(&mut secret_bytes.clone());
         data2.append(&mut z_bytes.clone());
         k = hmac_sha256(&k, &data2);
         v = hmac_sha256(&k, &v);
@@ -90,8 +96,83 @@ impl PrivateKey {
         }
     }
 
-    pub fn hex(self) -> String {
-        String::from("0x") + &encode_hex(&self.secrect.to_be_bytes())
+    pub fn wif(&self) -> String {
+        //  1. 前缀：对于主网，前缀为0x80，对于测试网，前缀为0xef
+        let mut bytes: Vec<u8> = if self.testnet { vec![0xef] } else { vec![0x80] };
+
+        // 2. serect以大端方式编码为32字节
+        let mut s_bytes = bigint_to_bytes(&self.secret, 32);
+        bytes.append(&mut s_bytes);
+
+        // 3.如果public key的sec编码方式是压缩的，添加0x01标记
+        if self.compressed {
+            bytes.push(0x01);
+        }
+
+        // 4. 前3步的结果combined之后，做hash256，拿到前四个字符的校验码
+        let mut checksum: Vec<u8> = hash256(&bytes).as_slice()[..4].to_vec();
+
+        // 5. 3的结果加上校验码，做base58编码
+        bytes.append(&mut checksum);
+        encode_base58(&bytes)
+    }
+
+    pub fn from_wif(wif: String) -> Result<PrivateKey> {
+        // base58解码
+        let bytes = decode_base58(&wif);
+        // 校验
+        let len = bytes.len();
+        if len != 38 && len != 37 {
+            bail!("私钥错误！");
+        }
+
+        let checksum = hash256(&bytes.as_slice()[..len - 4])[..4].to_vec();
+        if checksum != bytes[len - 4..].to_vec() {
+            bail!("私钥错误！");
+        }
+
+        let is_testnet: bool;
+        match bytes[0] {
+            0x80 => {
+                println!("导入主网私钥");
+                is_testnet = false;
+            }
+            0xef => {
+                println!("导入测试网私钥");
+                is_testnet = true;
+            }
+            _ => bail!("私钥格式错误！"),
+        };
+
+        if bytes[len - 5] == 0x01 {
+            if len != 38 {
+                bail!("私钥错误！");
+            }
+            // 公钥是压缩的
+            Ok(PrivateKey::new(
+                BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes.as_slice()[1..33]),
+                true,
+                is_testnet,
+            ))
+        } else {
+            if len != 37 {
+                bail!("私钥错误！");
+            }
+            println!("4");
+            Ok(PrivateKey::new(
+                BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes.as_slice()[1..33]),
+                true,
+                is_testnet,
+            ))
+        }
+    }
+
+    pub fn hex(&self) -> String {
+        String::from("0x") + &encode_hex(&self.secret.to_be_bytes())
+    }
+
+    pub fn address(&self) -> String {
+        self.point.address(self.compressed, self.testnet)
     }
 }
 
@@ -99,13 +180,15 @@ impl PrivateKey {
 mod tests {
     use std::str::FromStr;
 
-    use crate::utils::{bigint_from_hex, decode_hex, hash256, new_bigint, bigint_to_hex};
+    use num::FromPrimitive;
+
+    use crate::utils::{bigint_from_hex, bigint_to_hex, hash256, new_bigint};
 
     use super::*;
 
     #[test]
     pub fn test_deterministic_k() {
-        let key = PrivateKey::new(new_bigint(100));
+        let key = PrivateKey::new(new_bigint(100), true, true);
         let k = key.deterministic_k(&new_bigint(10012));
         let target =
             "42695049216645585062640330142435867217220364746155645266231669475379433942288";
@@ -115,7 +198,7 @@ mod tests {
             "61487454132488076575180963038085065582507398223936223029494779138210615773559",
         )
         .unwrap();
-        let key = PrivateKey::new(secrect);
+        let key = PrivateKey::new(secrect, true, true);
         let z = BigInt::from_str(
             "35224773764014901550789983228161827426520721227593273774884622297661387815467",
         )
@@ -128,11 +211,81 @@ mod tests {
 
     #[test]
     pub fn test_sign() {
-        let key = PrivateKey::new(new_bigint(12345));
-        let z = bigint_from_hex(&hash256(b"Programming Bitcoin!")).unwrap();
+        let key = PrivateKey::new(new_bigint(12345), true, true);
+        let z = BigInt::from_bytes_be(num::bigint::Sign::Plus, &hash256(b"Programming Bitcoin!"));
         let sig = key.sign(z.clone());
         println!("z: {}", bigint_to_hex(z).unwrap());
         println!("r: {}", bigint_to_hex(sig.r).unwrap());
         println!("s: {}", bigint_to_hex(sig.s).unwrap());
+    }
+
+    #[test]
+    pub fn test_sec() {
+        let secret = BigInt::from_i64(5000).unwrap();
+        let key = PrivateKey::new(secret, true, true);
+
+        assert!(
+            encode_hex(&key.point.sec(false)) == "04ffe558e388852f0120e46af2d1b370f85854a8eb0841811ece0e3e03d282d57c315dc72890a4f10a1481c031b03b351b0dc79901ca18a00cf009dbdb157a1d10");
+
+        let key = PrivateKey::new(BigInt::from_i64(2018).unwrap().pow(5), true, true);
+        assert!(
+            encode_hex(&key.point.sec(false)) == "04027f3da1918455e03c46f659266a1bb5204e959db7364d2f473bdf8f0a13cc9dff87647fd023c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06"
+        );
+
+        let key = PrivateKey::new(bigint_from_hex("deadbeef12345").unwrap(), true, true);
+        assert!(
+            encode_hex(&key.point.sec(false)) == "04d90cd625ee87dd38656dd95cf79f65f60f7273b67d3096e68bd81e4f5342691f842efa762fd59961d0e99803c61edba8b3e3f7dc3a341836f97733aebf987121"
+        );
+    }
+
+    #[test]
+    pub fn test_address() {
+        let secret = BigInt::from_i64(5002).unwrap();
+        let key = PrivateKey::new(secret, false, true);
+        let address = key.address();
+        assert!(address == "mmTPbXQFxboEtNRkwfh6K51jvdtHLxGeMA");
+
+        let key = PrivateKey::new(BigInt::from_i64(2020).unwrap().pow(5), true, true);
+        let address = key.address();
+        assert!(address == "mopVkxp8UhXqRYbCYJsbeE1h1fiF64jcoH");
+
+        let key = PrivateKey::new(bigint_from_hex("12345deadbeef").unwrap(), true, false);
+        let address = key.address();
+        assert!(address == "1F1Pn2y6pDb68E5nYJJeba4TLg2U7B6KF1");
+    }
+
+    #[test]
+    pub fn test_wif() {
+        let secret = BigInt::from_i64(5003).unwrap();
+        let key = PrivateKey::new(secret.clone(), true, true);
+        let wif = key.wif();
+        assert!(wif == "cMahea7zqjxrtgAbB7LSGbcQUr1uX1ojuat9jZodMN8rFTv2sfUK");
+        // parse from wif
+        let key2 = PrivateKey::from_wif(wif).unwrap();
+        println!("secrect: {}", key2.secret);
+        assert!(key2.secret == secret);
+
+        let secret = BigInt::from_i64(2021).unwrap().pow(5);
+        let key = PrivateKey::new(secret.clone(), false, true);
+        let wif = key.wif();
+        assert!(wif == "91avARGdfge8E4tZfYLoxeJ5sGBdNJQH4kvjpWAxgzczjbCwxic");
+        let key2 = PrivateKey::from_wif(wif).unwrap();
+        assert!(key2.secret == secret);
+
+        let secret = bigint_from_hex("54321deadbeef").unwrap();
+        let key = PrivateKey::new(secret.clone(), true, false);
+        let wif = key.wif();
+        assert!(wif == "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgiuQJv1h8Ytr2S53a");
+        let key2 = PrivateKey::from_wif(wif).unwrap();
+        assert!(key2.secret == secret);
+    }
+
+    #[test]
+    pub fn test_create_address() {
+        let passphrase = b"jimmy@programmingblockchain.com my secret";
+        let secrect =
+            BigInt::from_bytes_le(num::bigint::Sign::Plus, &hash256(passphrase.as_slice()));
+        let key = PrivateKey::new(secrect, true, true);
+        assert!(key.address() == "mft9LRNtaBNtpkknB8xgm17UvPedZ4ecYL");
     }
 }

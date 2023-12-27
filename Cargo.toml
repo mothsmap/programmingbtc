@@ -10,3 +10,4 @@ anyhow = "1.0"
 num = { version = "0.4.1", features = ["num-bigint", "rand"] }
 sha2 = "0.10"
 hmac = "0.12.1"
+ripemd = "0.1.3"

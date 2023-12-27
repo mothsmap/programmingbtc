@@ -1,5 +1,6 @@
 use super::field_element::FieldElement;
-use crate::utils::new_bigint;
+use crate::utils::{bigint_to_bytes, new_bigint};
+use crate::utils::{encode_base58, hash160, hash256};
 use anyhow::{bail, Result};
 use num::traits::Pow;
 use num::BigInt;
@@ -7,6 +8,8 @@ use num::One;
 use num::Zero;
 use std::fmt;
 use std::ops;
+use std::ops::Rem;
+use std::str::FromStr;
 
 // 有限域上椭圆曲线上的点
 // 椭圆曲线方程： y^2 = x^3 + ax + b
@@ -55,6 +58,92 @@ impl FieldPoint {
 
     pub fn is_infinity(&self) -> bool {
         self.x.is_none()
+    }
+
+    pub fn sec(&self, compressed: bool) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        match compressed {
+            true => {
+                // 压缩格式，以0x02或0x03开头
+                if self.y.clone().unwrap().num.rem(2) == BigInt::zero() {
+                    result.push(2);
+                } else {
+                    result.push(3);
+                }
+                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32));
+                result
+            }
+            false => {
+                // 未压缩格式，以0x04开头
+                result.push(4);
+                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32));
+                result.append(&mut bigint_to_bytes(&self.y.clone().unwrap().num, 32));
+                result
+            }
+        }
+    }
+
+    pub fn parse_sec(bytes: &[u8]) -> FieldPoint {
+        if bytes[0] != 2 && bytes[0] != 3 && bytes[0] != 4 {
+            panic!("无效sec格式！");
+        }
+
+        // 椭圆曲线参数
+        pub const P: &str =
+            "115792089237316195423570985008687907853269984665640564039457584007908834671663";
+        let prime = BigInt::from_str(P).unwrap();
+        let a_field = FieldElement::from_bigint(BigInt::zero(), prime.clone()).unwrap();
+        let b_field = FieldElement::from_bigint(new_bigint(7), prime.clone()).unwrap();
+
+        // 解析坐标
+        let x = BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes[1..33]);
+        let x_field = FieldElement::from_bigint(x, prime.clone()).unwrap();
+        let mut y_field = match bytes[0] == 4 {
+            true => {
+                // sec 曲线：y^2 = x^3 + B
+                // 对于压缩格式，我们想求w，已知v以及w^2 = v
+                // w^2 = w^2 * 1 = w^2 * w^(n-1) = w^(n+1)
+                // => w = w^((n+1)/2) = w^(2*((n+1)/4)) = v^((n+1)/4)
+                // 前提是n+1/4为整数，对于sec而言是成立的
+                let v = x_field.clone().pow(3) + b_field.clone();
+                v.pow((&prime + 1) / 4)
+            }
+            false => {
+                let y = BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes[33..65]);
+                FieldElement::from_bigint(y, prime.clone()).unwrap()
+            }
+        };
+
+        let even_odd = if bytes[0] == 2 {
+            BigInt::zero()
+        } else {
+            BigInt::one()
+        };
+
+        y_field = match y_field.num.clone().rem(2) == even_odd {
+            true => y_field,
+            false => FieldElement::from_bigint(&prime - &y_field.num, prime.clone()).unwrap(),
+        };
+
+        FieldPoint::from(Some(x_field), Some(y_field), a_field, b_field).unwrap()
+    }
+
+    pub fn address(&self, compressed: bool, testnet: bool) -> String {
+        // 1. 前缀：对于主网，前缀是0x00; 对于测试网，前缀是 0x6f
+        let mut bytes: Vec<u8> = if testnet { vec![0x6f] } else { vec![0] };
+
+        // 2. 对sec格式做hash160
+        let mut hash160_sec = hash160(&self.sec(compressed));
+
+        // 3. 组合1和2
+        bytes.append(&mut hash160_sec);
+
+        // 4. 对3做hash256拿到前四个字符作为校验码
+        let mut checksum = hash256(&bytes).as_slice()[..4].to_vec();
+
+        // 5. 把验证码加到3后面，再做base58编码
+        bytes.append(&mut checksum);
+        encode_base58(&bytes)
     }
 }
 
