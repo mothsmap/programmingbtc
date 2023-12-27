@@ -1,11 +1,10 @@
-use super::utils::new_bigint;
 use anyhow::{bail, Result};
 use num::{
     bigint::BigInt,
     traits::{Euclid, One, Pow, Zero},
+    FromPrimitive,
 };
-use std::fmt;
-use std::ops;
+use std::{fmt, ops};
 
 // 有限域元素
 #[derive(Debug, PartialEq, Clone)]
@@ -24,7 +23,10 @@ impl FieldElement {
     }
 
     pub fn from_i64(num: i64, prime: i64) -> Result<Self> {
-        FieldElement::from_bigint(new_bigint(num), new_bigint(prime))
+        FieldElement::from_bigint(
+            BigInt::from_i64(num).unwrap(),
+            BigInt::from_i64(prime).unwrap(),
+        )
     }
 }
 
@@ -34,6 +36,7 @@ impl fmt::Display for FieldElement {
     }
 }
 
+// 操作符重载: pow
 impl Pow<BigInt> for FieldElement {
     type Output = FieldElement;
 
@@ -77,7 +80,7 @@ impl Pow<i64> for FieldElement {
     type Output = FieldElement;
 
     fn pow(self, rhs: i64) -> Self::Output {
-        self.pow(new_bigint(rhs))
+        self.pow(BigInt::from_i64(rhs).unwrap())
     }
 }
 
@@ -85,10 +88,11 @@ impl Pow<i64> for &FieldElement {
     type Output = FieldElement;
 
     fn pow(self, rhs: i64) -> Self::Output {
-        self.clone().pow(new_bigint(rhs))
+        self.clone().pow(BigInt::from_i64(rhs).unwrap())
     }
 }
 
+// 操作符重载: +
 impl ops::Add<FieldElement> for FieldElement {
     type Output = FieldElement;
 
@@ -128,6 +132,7 @@ impl ops::Add<&FieldElement> for &FieldElement {
     }
 }
 
+// 操作符重载: -
 impl ops::Sub<FieldElement> for FieldElement {
     type Output = FieldElement;
 
@@ -167,6 +172,7 @@ impl ops::Sub<&FieldElement> for &FieldElement {
     }
 }
 
+// 操作符重载: *
 impl ops::Mul<FieldElement> for FieldElement {
     type Output = FieldElement;
 
@@ -210,7 +216,7 @@ impl ops::Mul<&FieldElement> for i64 {
     type Output = FieldElement;
 
     fn mul(self, rhs: &FieldElement) -> FieldElement {
-        FieldElement::from_bigint(new_bigint(self), rhs.prime.clone()).unwrap() * rhs
+        FieldElement::from_bigint(BigInt::from_i64(self).unwrap(), rhs.prime.clone()).unwrap() * rhs
     }
 }
 
@@ -218,9 +224,43 @@ impl ops::Mul<FieldElement> for i64 {
     type Output = FieldElement;
 
     fn mul(self, rhs: FieldElement) -> FieldElement {
-        FieldElement::from_bigint(new_bigint(self), rhs.prime.clone()).unwrap() * rhs
+        FieldElement::from_bigint(BigInt::from_i64(self).unwrap(), rhs.prime.clone()).unwrap() * rhs
     }
 }
+
+impl ops::Mul<&FieldElement> for BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: &FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self, rhs.prime.clone()).unwrap() * rhs
+    }
+}
+
+impl ops::Mul<FieldElement> for BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self, rhs.clone().prime).unwrap() * rhs
+    }
+}
+
+impl ops::Mul<&FieldElement> for &BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: &FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self.clone(), rhs.prime.clone()).unwrap() * rhs
+    }
+}
+
+impl ops::Mul<FieldElement> for &BigInt {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: FieldElement) -> FieldElement {
+        FieldElement::from_bigint(self.clone(), rhs.clone().prime).unwrap() * rhs
+    }
+}
+
+// 操作符重载: /
 
 // 根据费马小定理： n^(p-1) % p = 1
 // 有限域内的除法：
@@ -233,11 +273,8 @@ impl ops::Div<FieldElement> for FieldElement {
             panic!("不同阶的元素不能相除！");
         }
 
-        let num: BigInt = self.num * rhs.num.pow(&(self.prime.to_biguint().unwrap() - 2u32));
-        FieldElement {
-            num: num.rem_euclid(&self.prime),
-            prime: self.prime,
-        }
+        // 注意这里的pow运算不能用BigInt内置的，必须使用FieldElement来运算，否则会溢出
+        self.num * rhs.pow(&(self.prime - 2u32))
     }
 }
 
