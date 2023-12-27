@@ -158,10 +158,9 @@ impl PrivateKey {
             if len != 37 {
                 bail!("私钥错误！");
             }
-            println!("4");
             Ok(PrivateKey::new(
                 BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes.as_slice()[1..33]),
-                true,
+                false,
                 is_testnet,
             ))
         }
