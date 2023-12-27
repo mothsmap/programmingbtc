@@ -5,10 +5,6 @@ use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
 
-pub fn new_bigint(i: i64) -> BigInt {
-    BigInt::from_i64(i).unwrap()
-}
-
 pub fn decode_hex(input: &str) -> Result<Vec<u8>> {
     // 奇数字符串前面补0
     let s = if input.len() % 2 != 0 {

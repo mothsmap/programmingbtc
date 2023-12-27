@@ -1,11 +1,11 @@
 use super::field_element::FieldElement;
-use crate::utils::{bigint_to_bytes, new_bigint};
+use crate::utils::bigint_to_bytes;
 use crate::utils::{encode_base58, hash160, hash256};
 use anyhow::{bail, Result};
 use num::traits::Pow;
-use num::BigInt;
 use num::One;
 use num::Zero;
+use num::{BigInt, FromPrimitive};
 use std::fmt;
 use std::ops;
 use std::ops::Rem;
@@ -93,7 +93,8 @@ impl FieldPoint {
             "115792089237316195423570985008687907853269984665640564039457584007908834671663";
         let prime = BigInt::from_str(P).unwrap();
         let a_field = FieldElement::from_bigint(BigInt::zero(), prime.clone()).unwrap();
-        let b_field = FieldElement::from_bigint(new_bigint(7), prime.clone()).unwrap();
+        let b_field =
+            FieldElement::from_bigint(BigInt::from_i64(7).unwrap(), prime.clone()).unwrap();
 
         // 解析坐标
         let x = BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes[1..33]);
@@ -301,7 +302,7 @@ impl ops::Mul<&FieldPoint> for u64 {
     type Output = FieldPoint;
 
     fn mul(self, rhs: &FieldPoint) -> FieldPoint {
-        new_bigint(self as i64).mul(rhs.clone())
+        BigInt::from_i64(self as i64).unwrap().mul(rhs.clone())
     }
 }
 
@@ -309,7 +310,7 @@ impl ops::Mul<FieldPoint> for u64 {
     type Output = FieldPoint;
 
     fn mul(self, rhs: FieldPoint) -> FieldPoint {
-        new_bigint(self as i64).mul(rhs)
+        BigInt::from_i64(self as i64).unwrap().mul(rhs)
     }
 }
 

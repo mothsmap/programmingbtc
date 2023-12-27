@@ -181,14 +181,14 @@ mod tests {
 
     use num::FromPrimitive;
 
-    use crate::utils::{hash256, new_bigint, Hex};
+    use crate::utils::{hash256, Hex};
 
     use super::*;
 
     #[test]
     pub fn test_deterministic_k() {
-        let key = PrivateKey::new(new_bigint(100), true, true);
-        let k = key.deterministic_k(&new_bigint(10012));
+        let key = PrivateKey::new(BigInt::from_i64(100).unwrap(), true, true);
+        let k = key.deterministic_k(&BigInt::from_i64(10012).unwrap());
         let target =
             "42695049216645585062640330142435867217220364746155645266231669475379433942288";
         assert!(k == BigInt::from_str(target).unwrap());
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     pub fn test_sign() {
-        let key = PrivateKey::new(new_bigint(12345), true, true);
+        let key = PrivateKey::new(BigInt::from_i64(12345).unwrap(), true, true);
         let z = BigInt::from_bytes_be(num::bigint::Sign::Plus, &hash256(b"Programming Bitcoin!"));
         let sig = key.sign(z.clone());
         println!("z: {}", z.to_hex());

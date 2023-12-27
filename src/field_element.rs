@@ -1,8 +1,8 @@
-use super::utils::new_bigint;
 use anyhow::{bail, Result};
 use num::{
     bigint::BigInt,
     traits::{Euclid, One, Pow, Zero},
+    FromPrimitive,
 };
 use std::{fmt, ops};
 
@@ -23,7 +23,10 @@ impl FieldElement {
     }
 
     pub fn from_i64(num: i64, prime: i64) -> Result<Self> {
-        FieldElement::from_bigint(new_bigint(num), new_bigint(prime))
+        FieldElement::from_bigint(
+            BigInt::from_i64(num).unwrap(),
+            BigInt::from_i64(prime).unwrap(),
+        )
     }
 }
 
@@ -77,7 +80,7 @@ impl Pow<i64> for FieldElement {
     type Output = FieldElement;
 
     fn pow(self, rhs: i64) -> Self::Output {
-        self.pow(new_bigint(rhs))
+        self.pow(BigInt::from_i64(rhs).unwrap())
     }
 }
 
@@ -85,7 +88,7 @@ impl Pow<i64> for &FieldElement {
     type Output = FieldElement;
 
     fn pow(self, rhs: i64) -> Self::Output {
-        self.clone().pow(new_bigint(rhs))
+        self.clone().pow(BigInt::from_i64(rhs).unwrap())
     }
 }
 
@@ -213,7 +216,7 @@ impl ops::Mul<&FieldElement> for i64 {
     type Output = FieldElement;
 
     fn mul(self, rhs: &FieldElement) -> FieldElement {
-        FieldElement::from_bigint(new_bigint(self), rhs.prime.clone()).unwrap() * rhs
+        FieldElement::from_bigint(BigInt::from_i64(self).unwrap(), rhs.prime.clone()).unwrap() * rhs
     }
 }
 
@@ -221,7 +224,7 @@ impl ops::Mul<FieldElement> for i64 {
     type Output = FieldElement;
 
     fn mul(self, rhs: FieldElement) -> FieldElement {
-        FieldElement::from_bigint(new_bigint(self), rhs.prime.clone()).unwrap() * rhs
+        FieldElement::from_bigint(BigInt::from_i64(self).unwrap(), rhs.prime.clone()).unwrap() * rhs
     }
 }
 

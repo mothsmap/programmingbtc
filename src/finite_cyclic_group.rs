@@ -1,5 +1,5 @@
 use super::*;
-use num::{traits::Euclid, BigInt, Zero};
+use num::{traits::Euclid, BigInt, FromPrimitive, Zero};
 
 // 有限循环群
 #[derive(Debug, PartialEq, Clone)]
@@ -30,13 +30,13 @@ impl FiniteCyclicGroup {
             "32670510020758816978083085130507043184471273380659243275938904335757337482424";
         let prime = BigInt::from_str(P).unwrap();
         let a = FieldElement::from_bigint(BigInt::zero(), prime.clone()).unwrap();
-        let b = FieldElement::from_bigint(new_bigint(7), prime.clone()).unwrap();
+        let b = FieldElement::from_bigint(BigInt::from_i64(7).unwrap(), prime.clone()).unwrap();
         let gx = FieldElement::from_bigint(BigInt::from_str(GX).unwrap(), prime.clone()).unwrap();
         let gy = FieldElement::from_bigint(BigInt::from_str(GY).unwrap(), prime.clone()).unwrap();
 
         FiniteCyclicGroup {
             a: BigInt::zero(),
-            b: new_bigint(7),
+            b: BigInt::from_i64(7).unwrap(),
             p: prime,
             g: FieldPoint::from(Some(gx), Some(gy), a, b).unwrap(),
             n: BigInt::from_str(N).unwrap(),
