@@ -2,7 +2,7 @@ use std::fmt;
 
 use num::{traits::Euclid, BigInt};
 
-use crate::{finite_cyclic_group::FiniteCyclicGroup, utils::bigint_from_hex};
+use crate::{finite_cyclic_group::FiniteCyclicGroup, utils::Hex};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Signature {
@@ -16,8 +16,8 @@ impl Signature {
             panic!("十六进制字符串必须以0x开头");
         }
         Signature {
-            r: bigint_from_hex(&r[2..]).unwrap(),
-            s: bigint_from_hex(&s[2..]).unwrap(),
+            r: BigInt::from_hex(&r[2..]),
+            s: BigInt::from_hex(&s[2..]),
         }
     }
 
@@ -93,9 +93,9 @@ impl Signature {
         }
 
         self.verify_bigint(
-            &bigint_from_hex(&z[2..]).unwrap(),
-            &bigint_from_hex(&pub_key_x[2..]).unwrap(),
-            &bigint_from_hex(&pub_key_y[2..]).unwrap(),
+            &BigInt::from_hex(&z[2..]),
+            &BigInt::from_hex(&pub_key_x[2..]),
+            &BigInt::from_hex(&pub_key_y[2..]),
         )
     }
 
@@ -174,8 +174,8 @@ mod tests {
         let s = "0x8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec";
         let sig_hex = "3045022037206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c60221008ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec";
         let sig = Signature {
-            r: bigint_from_hex(&r[2..]).unwrap(),
-            s: bigint_from_hex(&s[2..]).unwrap(),
+            r: BigInt::from_hex(&r[2..]),
+            s: BigInt::from_hex(&s[2..]),
         };
         println!("sig: {}", encode_hex(&sig.der()));
         assert!(encode_hex(&sig.der()) == sig_hex);

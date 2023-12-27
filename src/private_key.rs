@@ -181,7 +181,7 @@ mod tests {
 
     use num::FromPrimitive;
 
-    use crate::utils::{bigint_from_hex, bigint_to_hex, hash256, new_bigint};
+    use crate::utils::{hash256, new_bigint, Hex};
 
     use super::*;
 
@@ -213,9 +213,9 @@ mod tests {
         let key = PrivateKey::new(new_bigint(12345), true, true);
         let z = BigInt::from_bytes_be(num::bigint::Sign::Plus, &hash256(b"Programming Bitcoin!"));
         let sig = key.sign(z.clone());
-        println!("z: {}", bigint_to_hex(z).unwrap());
-        println!("r: {}", bigint_to_hex(sig.r).unwrap());
-        println!("s: {}", bigint_to_hex(sig.s).unwrap());
+        println!("z: {}", z.to_hex());
+        println!("r: {}", sig.r.to_hex());
+        println!("s: {}", sig.s.to_hex());
     }
 
     #[test]
@@ -231,7 +231,7 @@ mod tests {
             encode_hex(&key.point.sec(false)) == "04027f3da1918455e03c46f659266a1bb5204e959db7364d2f473bdf8f0a13cc9dff87647fd023c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06"
         );
 
-        let key = PrivateKey::new(bigint_from_hex("deadbeef12345").unwrap(), true, true);
+        let key = PrivateKey::new(BigInt::from_hex("deadbeef12345"), true, true);
         assert!(
             encode_hex(&key.point.sec(false)) == "04d90cd625ee87dd38656dd95cf79f65f60f7273b67d3096e68bd81e4f5342691f842efa762fd59961d0e99803c61edba8b3e3f7dc3a341836f97733aebf987121"
         );
@@ -248,7 +248,7 @@ mod tests {
         let address = key.address();
         assert!(address == "mopVkxp8UhXqRYbCYJsbeE1h1fiF64jcoH");
 
-        let key = PrivateKey::new(bigint_from_hex("12345deadbeef").unwrap(), true, false);
+        let key = PrivateKey::new(BigInt::from_hex("12345deadbeef"), true, false);
         let address = key.address();
         assert!(address == "1F1Pn2y6pDb68E5nYJJeba4TLg2U7B6KF1");
     }
@@ -271,7 +271,7 @@ mod tests {
         let key2 = PrivateKey::from_wif(wif).unwrap();
         assert!(key2.secret == secret);
 
-        let secret = bigint_from_hex("54321deadbeef").unwrap();
+        let secret = BigInt::from_hex("54321deadbeef");
         let key = PrivateKey::new(secret.clone(), true, false);
         let wif = key.wif();
         assert!(wif == "KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgiuQJv1h8Ytr2S53a");

@@ -108,11 +108,11 @@ mod tests {
 
         let group = FiniteCyclicGroup::from_secp256k1();
         let z = "0xbc62d4b80d9e36da29c16c5d4d9f11731f36052c72401a76c23c0fb5a9b74423";
-        let big_z = utils::bigint_from_hex(&z[2..]).unwrap();
+        let big_z = BigInt::from_hex(&z[2..]);
         let r = "0x37206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6";
-        let big_r = utils::bigint_from_hex(&r[2..]).unwrap();
+        let big_r = BigInt::from_hex(&r[2..]);
         let s = "0x8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec";
-        let big_s = utils::bigint_from_hex(&s[2..]).unwrap();
+        let big_s = BigInt::from_hex(&s[2..]);
         let px = "0x04519fac3d910ca7e7138f7013706f619fa8f033e6ec6e09370ea38cee6a7574";
         let py = "0x82b51eab8c27c66e26c858a079bcdf4f1ada34cec420cafc7eac1a42216fb6c4";
 
@@ -125,11 +125,8 @@ mod tests {
 
         // uG + vP = kG
         let ug = group.generate(&u);
-        let vp = group.generate_from_point(
-            &v,
-            &utils::bigint_from_hex(&px[2..]).unwrap(),
-            &utils::bigint_from_hex(&py[2..]).unwrap(),
-        );
+        let vp =
+            group.generate_from_point(&v, &BigInt::from_hex(&px[2..]), &BigInt::from_hex(&py[2..]));
         let r_shot = (ug + vp).x.unwrap().num;
         assert!(r_shot == big_r);
     }

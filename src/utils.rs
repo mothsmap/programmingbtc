@@ -151,6 +151,21 @@ pub fn decode_base58(input: &str) -> Vec<u8> {
     bytes
 }
 
+pub trait Hex {
+    fn from_hex(hex: &str) -> Self;
+    fn to_hex(&self) -> String;
+}
+
+impl Hex for BigInt {
+    fn from_hex(hex: &str) -> Self {
+        bigint_from_hex(hex).unwrap()
+    }
+
+    fn to_hex(&self) -> String {
+        bigint_to_hex(self.clone()).unwrap()
+    }
+}
+
 mod tests {
     use super::*;
 
