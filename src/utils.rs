@@ -1,6 +1,8 @@
+use std::io::{Read, Seek};
+
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
-use num::{bigint::BigInt, FromPrimitive, Integer, ToPrimitive, Zero};
+use num::{bigint::BigInt, FromPrimitive, Integer, ToPrimitive, Zero, traits::ToBytes};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
@@ -54,17 +56,22 @@ pub fn bigint_to_hex(input: BigInt) -> Result<String> {
     Ok(encode_hex(bytes.as_slice()))
 }
 
-pub fn bigint_to_bytes(input: &BigInt, bytes: usize) -> Vec<u8> {
+pub fn bigint_to_bytes(input: &BigInt, bytes: usize, endian: &str) -> Vec<u8> {
     // 确保输出bytes位
     // 对于椭圆曲线而言，符号位永远为正
-    let (_, mut data_part) = input.to_bytes_be();
-    if data_part.len() < bytes {
-        let mut result: Vec<u8> = vec![0; 32 - data_part.len()];
-        result.append(&mut data_part);
-        result
-    } else {
-        data_part
+    let (_, mut data_part) = match endian {
+        "big" => input.to_bytes_be(),
+        "little" => input.to_bytes_le(),
+        _ => panic!("invalid endian"),
+    };
+
+    if data_part.len() > bytes {
+        panic!("data not fit to {} bytes", bytes);
     }
+
+    let mut result: Vec<u8> = vec![0; bytes - data_part.len()];
+    result.append(&mut data_part);
+    result
 }
 
 pub fn sha256(data: &[u8]) -> Vec<u8> {
@@ -162,7 +169,48 @@ impl Hex for BigInt {
     }
 }
 
+// 整数变长编码
+pub fn encode_varint(num: u64) -> Vec<u8> {
+    let bytes = num.to_le_bytes();
+    if num < 253 {
+        vec![bytes[0]]
+    } else if num < 0x10000 {
+        vec![0xfd, bytes[0], bytes[1]]
+    } else if num < 0x100000000 {
+        vec![0xfe, bytes[0], bytes[1], bytes[2], bytes[3]]
+    } else {
+        // num < 0x10000000000000000
+        vec![0xff, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]
+    }
+}
+
+pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
+    let mut flag = [0u8; 1];
+    buffer.read_exact(&mut flag).unwrap();
+
+    match flag[0] {
+        0xfd => {
+            let mut bytes = [0u8; 2];
+            buffer.read_exact(&mut bytes).unwrap();
+            u16::from_le_bytes(bytes) as u64
+        },
+        0xfe => {
+            let mut bytes = [0u8; 4];
+            buffer.read_exact(&mut bytes).unwrap();
+            u32::from_le_bytes(bytes) as u64
+        },
+        0xff => {
+            let mut bytes = [0u8; 8];
+            buffer.read_exact(&mut bytes).unwrap();
+            u64::from_le_bytes(bytes) as u64
+        },
+        _ => flag[0] as u64
+    }
+ }
+
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
     #[test]
@@ -181,5 +229,17 @@ mod tests {
         let b = "EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7";
         let bytes = decode_hex(x).unwrap();
         assert!(encode_base58(&bytes) == b);
+    }
+
+    #[test]
+    pub fn test_varint() {
+        let x = [100u64, 555, 70015, 18005558675309 ];
+        let x_hex = ["64", "fd2b02", "fe7f110100", "ff6dc7ed3e60100000"];
+
+        for i in 0usize..4 {
+            let bytes = encode_varint(x[i]);
+            assert!(&encode_hex(&bytes) == x_hex[i]);
+            assert!(decode_varint(&mut Cursor::new(bytes)) == x[i]);
+        }
     }
 }

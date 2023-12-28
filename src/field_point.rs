@@ -70,14 +70,14 @@ impl FieldPoint {
                 } else {
                     result.push(3);
                 }
-                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32));
+                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32, "big"));
                 result
             }
             false => {
                 // 未压缩格式，以0x04开头
                 result.push(4);
-                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32));
-                result.append(&mut bigint_to_bytes(&self.y.clone().unwrap().num, 32));
+                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32, "big"));
+                result.append(&mut bigint_to_bytes(&self.y.clone().unwrap().num, 32, "big"));
                 result
             }
         }

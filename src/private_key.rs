@@ -63,8 +63,8 @@ impl PrivateKey {
             z.clone()
         };
 
-        let z_bytes = bigint_to_bytes(&reduced_z, 32);
-        let secret_bytes = bigint_to_bytes(&self.secret, 32);
+        let z_bytes = bigint_to_bytes(&reduced_z, 32, "big");
+        let secret_bytes = bigint_to_bytes(&self.secret, 32, "big");
 
         let mut data1: Vec<u8> = vec![];
         data1.append(&mut v.clone());
@@ -101,7 +101,7 @@ impl PrivateKey {
         let mut bytes: Vec<u8> = if self.testnet { vec![0xef] } else { vec![0x80] };
 
         // 2. serect以大端方式编码为32字节
-        let mut s_bytes = bigint_to_bytes(&self.secret, 32);
+        let mut s_bytes = bigint_to_bytes(&self.secret, 32, "big");
         bytes.append(&mut s_bytes);
 
         // 3.如果public key的sec编码方式是压缩的，添加0x01标记
