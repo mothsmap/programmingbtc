@@ -1,26 +1,33 @@
-use crate::utils::{hash256, encode_hex, encode_varint, decode_hex, bigint_to_bytes, decode_varint};
 use crate::script::Script;
-use anyhow::{Result, bail};
+use crate::utils::{
+    bigint_to_bytes, decode_hex, decode_varint, encode_hex, encode_varint, hash256,
+};
+use anyhow::{bail, Result};
 use num::traits::ToBytes;
 use num::{BigInt, FromPrimitive};
 use std::collections::HashMap;
 use std::fmt::{self, Display};
-use std::io::{Read, Seek, Cursor};
+use std::io::{Cursor, Read, Seek};
 
 // 交易输入
 #[derive(Debug, Clone)]
 struct TxIn {
-    pub prev_tx: Vec<u8>,    // 上一个交易的哈希
-    pub prev_index: u64,    // 上一个交易的第几个输出
+    pub prev_tx: Vec<u8>, // 上一个交易的哈希
+    pub prev_index: u64,  // 上一个交易的第几个输出
     pub script_sig: Script,
-    pub sequence: u32,        //
+    pub sequence: u32, //
 }
 
 impl TxIn {
     pub fn new(prev_tx: Vec<u8>, prev_index: u64, script: Script, sequence: u32) -> TxIn {
-        TxIn { prev_tx, prev_index, script_sig: script, sequence }
+        TxIn {
+            prev_tx,
+            prev_index,
+            script_sig: script,
+            sequence,
+        }
     }
-    
+
     pub fn parse<T: Read + Seek>(buffer: &mut T) -> Result<TxIn> {
         // 前32byte是上一个交易的哈希，以小端存储
         let mut prev_tx = [0u8; 32];
@@ -38,7 +45,12 @@ impl TxIn {
         buffer.read_exact(&mut sequence_bytes)?;
         let sequence = u32::from_le_bytes(sequence_bytes);
 
-        Ok(TxIn { prev_tx: prev_tx.to_vec(), prev_index, script_sig, sequence })
+        Ok(TxIn {
+            prev_tx: prev_tx.to_vec(),
+            prev_index,
+            script_sig,
+            sequence,
+        })
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -57,13 +69,16 @@ impl TxIn {
 
         // sequence, 4 bytes
         result.append(&mut self.sequence.to_le_bytes().to_vec());
-        
+
         result
     }
 
     // 获取上一个交易的内容
     pub async fn fetch_tx(&self, tx_fetcher: &mut TxFetcher, testnet: bool) -> Tx {
-        tx_fetcher.fetch(encode_hex(&self.prev_tx), testnet, false).await.clone()
+        tx_fetcher
+            .fetch(encode_hex(&self.prev_tx), testnet, false)
+            .await
+            .clone()
     }
 
     // 获取输入的sotashi
@@ -93,7 +108,10 @@ pub struct TxOut {
 
 impl TxOut {
     pub fn new(amount: u64, script_pubkey: Script) -> TxOut {
-        TxOut { amount, script_pubkey }
+        TxOut {
+            amount,
+            script_pubkey,
+        }
     }
 
     pub fn parse<T: Read + Seek>(buffer: &mut T) -> Result<TxOut> {
@@ -103,9 +121,12 @@ impl TxOut {
         let amount = u64::from_le_bytes(amount_bytes);
 
         let script_pubkey = Script::parse(buffer).unwrap();
-        Ok(TxOut{ amount, script_pubkey })
+        Ok(TxOut {
+            amount,
+            script_pubkey,
+        })
     }
-    
+
     pub fn serialize(&self) -> Vec<u8> {
         // amount, 8 bytes
         let mut result = self.amount.to_le_bytes().to_vec();
@@ -130,12 +151,18 @@ struct Tx {
     pub inputs: Vec<TxIn>,   // 输入
     pub outputs: Vec<TxOut>, // 输出
     // locktime > 500,000,000 表示时间戳，否则表示区块高度
-    pub locktime: u32,       // 锁定时间
-    pub testnet: bool,       // 是否测试网
+    pub locktime: u32, // 锁定时间
+    pub testnet: bool, // 是否测试网
 }
 
 impl Tx {
-    pub fn new(version: u32, txin: Vec<TxIn>, txout: Vec<TxOut>, locktime: u32, testnet: bool) -> Tx {
+    pub fn new(
+        version: u32,
+        txin: Vec<TxIn>,
+        txout: Vec<TxOut>,
+        locktime: u32,
+        testnet: bool,
+    ) -> Tx {
         Tx {
             version,
             inputs: txin,
@@ -147,21 +174,21 @@ impl Tx {
 
     pub fn parse<T: Read + Seek>(buffer: &mut T, testnet: bool) -> Result<Tx> {
         // 4 byte little-endian integer
-        let mut version_bytes=  [0u8; 4];
+        let mut version_bytes = [0u8; 4];
         buffer.read_exact(&mut version_bytes)?;
         let version = u32::from_le_bytes(version_bytes);
 
         // inputs
         let inputs = decode_varint(buffer);
         let mut tx_inputs: Vec<TxIn> = vec![];
-        for i in 0..inputs {
+        for _ in 0..inputs {
             tx_inputs.push(TxIn::parse(buffer).unwrap());
         }
 
         // outputs
         let outputs = decode_varint(buffer);
         let mut tx_outputs: Vec<TxOut> = vec![];
-        for i in 0..outputs {
+        for _ in 0..outputs {
             tx_outputs.push(TxOut::parse(buffer).unwrap());
         }
 
@@ -170,11 +197,17 @@ impl Tx {
         buffer.read_exact(&mut locktime_bytes)?;
         let locktime = u32::from_le_bytes(locktime_bytes);
 
-        Ok(Tx{version, inputs: tx_inputs, outputs: tx_outputs, locktime, testnet})
+        Ok(Tx {
+            version,
+            inputs: tx_inputs,
+            outputs: tx_outputs,
+            locktime,
+            testnet,
+        })
     }
 
     // 二进制交易哈希
-    pub fn hash(&self) ->Vec<u8> {
+    pub fn hash(&self) -> Vec<u8> {
         let mut h = hash256(&self.serialize());
         // legacy serialization
         h.reverse();
@@ -230,11 +263,19 @@ impl fmt::Display for Tx {
             tx_outs += &tx_out.to_string();
         }
 
-        write!(f, "tx: {}\tversion: {}\ttx_ins:\n{}tx_outs:\n{}locktime: {}", self.id(), self.version, tx_ins, tx_outs, self.locktime)
+        write!(
+            f,
+            "tx: {}\tversion: {}\ttx_ins:\n{}tx_outs:\n{}locktime: {}",
+            self.id(),
+            self.version,
+            tx_ins,
+            tx_outs,
+            self.locktime
+        )
     }
 }
 
-struct  TxFetcher {
+struct TxFetcher {
     pub cache: HashMap<String, Tx>,
 }
 
@@ -259,9 +300,9 @@ impl TxFetcher {
                 let mut right = bytes[6..].to_vec();
                 left.append(&mut right);
                 let mut cursor = Cursor::new(left);
-                
+
                 tx = Tx::parse(&mut cursor, testnet).unwrap();
-                let locktime_bytes: [u8; 4] = bytes[bytes.len()-4..].try_into().unwrap();
+                let locktime_bytes: [u8; 4] = bytes[bytes.len() - 4..].try_into().unwrap();
                 tx.locktime = u32::from_le_bytes(locktime_bytes);
             } else {
                 let mut cursor = Cursor::new(bytes);
@@ -275,5 +316,4 @@ impl TxFetcher {
 
         self.cache.get(&tx_id).unwrap()
     }
-    
 }

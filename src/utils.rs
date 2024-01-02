@@ -2,7 +2,7 @@ use std::io::{Read, Seek};
 
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
-use num::{bigint::BigInt, FromPrimitive, Integer, ToPrimitive, Zero, traits::ToBytes};
+use num::{bigint::BigInt, traits::ToBytes, FromPrimitive, Integer, ToPrimitive, Zero};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
@@ -104,6 +104,13 @@ pub fn hash160(data: &[u8]) -> Vec<u8> {
     hash2.to_vec()
 }
 
+pub fn ripemd160(data: &[u8]) -> Vec<u8> {
+    let mut hasher2 = Ripemd160::new();
+    hasher2.update(data);
+    let hash2 = hasher2.finalize();
+    hash2.to_vec()
+}
+
 pub fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut mac = HmacSha256::new_from_slice(key).unwrap();
     mac.update(data);
@@ -180,7 +187,9 @@ pub fn encode_varint(num: u64) -> Vec<u8> {
         vec![0xfe, bytes[0], bytes[1], bytes[2], bytes[3]]
     } else {
         // num < 0x10000000000000000
-        vec![0xff, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]
+        vec![
+            0xff, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]
     }
 }
 
@@ -193,20 +202,20 @@ pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
             let mut bytes = [0u8; 2];
             buffer.read_exact(&mut bytes).unwrap();
             u16::from_le_bytes(bytes) as u64
-        },
+        }
         0xfe => {
             let mut bytes = [0u8; 4];
             buffer.read_exact(&mut bytes).unwrap();
             u32::from_le_bytes(bytes) as u64
-        },
+        }
         0xff => {
             let mut bytes = [0u8; 8];
             buffer.read_exact(&mut bytes).unwrap();
             u64::from_le_bytes(bytes) as u64
-        },
-        _ => flag[0] as u64
+        }
+        _ => flag[0] as u64,
     }
- }
+}
 
 mod tests {
     use std::io::Cursor;
@@ -233,7 +242,7 @@ mod tests {
 
     #[test]
     pub fn test_varint() {
-        let x = [100u64, 555, 70015, 18005558675309 ];
+        let x = [100u64, 555, 70015, 18005558675309];
         let x_hex = ["64", "fd2b02", "fe7f110100", "ff6dc7ed3e60100000"];
 
         for i in 0usize..4 {
