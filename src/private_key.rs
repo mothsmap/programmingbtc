@@ -16,8 +16,8 @@ pub struct PrivateKey {
     pub secret: BigInt,
     pub point: FieldPoint,
     pub group: FiniteCyclicGroup,
-    compressed: bool, // 是否为SEC压缩格式
-    testnet: bool,    // 是否为测试网的地址
+    pub compressed: bool, // 是否为SEC压缩格式
+    pub testnet: bool,    // 是否为测试网的地址
 }
 
 impl PrivateKey {
@@ -32,7 +32,7 @@ impl PrivateKey {
         }
     }
 
-    pub fn sign(self, z: BigInt) -> Signature {
+    pub fn sign(&self, z: BigInt) -> Signature {
         let k = self.deterministic_k(&z);
 
         // r is the x coordinate of kG

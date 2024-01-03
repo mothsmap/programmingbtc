@@ -1,17 +1,19 @@
+use crate::op::Command;
+use crate::private_key::PrivateKey;
 use crate::script::Script;
 use crate::utils::{
     bigint_to_bytes, decode_hex, decode_varint, encode_hex, encode_varint, hash256,
 };
 use anyhow::{bail, Result};
-use num::traits::ToBytes;
-use num::{BigInt, FromPrimitive};
+use num::traits::{ToBytes, FromBytes};
+use num::{BigInt, FromPrimitive, Zero};
 use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::io::{Cursor, Read, Seek};
 
 // 交易输入
 #[derive(Debug, Clone)]
-struct TxIn {
+pub struct TxIn {
     pub prev_tx: Vec<u8>, // 上一个交易的哈希
     pub prev_index: u32,  // 上一个交易的第几个输出
     pub script_sig: Script,
@@ -19,12 +21,12 @@ struct TxIn {
 }
 
 impl TxIn {
-    pub fn new(prev_tx: Vec<u8>, prev_index: u32, script: Script, sequence: u32) -> TxIn {
+    pub fn new(prev_tx: Vec<u8>, prev_index: u32, script: Option<Script>, sequence: Option<u32>) -> TxIn {
         TxIn {
             prev_tx,
             prev_index,
-            script_sig: script,
-            sequence,
+            script_sig: if script.is_none() { Script::new(vec![]) } else { script.unwrap() },
+            sequence: if sequence.is_none() { 0xffffffff } else { sequence.unwrap() },
         }
     }
 
@@ -154,7 +156,7 @@ impl fmt::Display for TxOut {
 
 // 交易结构体
 #[derive(Debug, Clone)]
-struct Tx {
+pub struct Tx {
     pub version: u32,        // 版本号
     pub inputs: Vec<TxIn>,   // 输入
     pub outputs: Vec<TxOut>, // 输出
@@ -270,6 +272,80 @@ impl Tx {
         }
         result
     }
+
+    // 获得待签名的hash
+    // 返回对于特定input的签名hash代表的数字
+    // 签名hash是对tx的序列化进行修改（清空所有input的scriptSig，替换待签名input的SciptPubkey），然后进行hash256操作
+    pub fn sig_hash(&self, input_index: u32) -> BigInt {
+        let mut tx_fetcher = TxFetcher::new();
+        let mut result: Vec<u8> = vec![];
+
+        // version, 小端编码，4 bytes
+        // version通常为1，使用OP_CHECKSEQUENCEVERIFY时version为2
+        result.append(&mut self.version.to_le_bytes().to_vec());
+
+        // inputs
+        result.append(&mut encode_varint(self.inputs.len() as u64));
+        let mut cnt = 0;
+        for input in &self.inputs {
+            let txin = if cnt == input_index {
+                // 替换ScriptPubkey
+                TxIn::new(input.prev_tx.clone(), input.prev_index, Some(input.script_pubkey(&mut tx_fetcher, self.testnet)), Some(input.sequence))
+            } else {
+                // 使用空的ScriptSig
+                TxIn::new(input.prev_tx.clone(), input.prev_index, None, Some(input.sequence))
+            };
+            result.append(&mut txin.serialize());
+            cnt += 1;
+        }
+
+        // outputs
+        result.append(&mut encode_varint(self.outputs.len() as u64));
+        for output in &self.outputs {
+            result.append(&mut output.serialize());
+        }
+
+        // locktime
+        result.append(&mut self.locktime.to_le_bytes().to_vec());
+
+        // SIGHASH_ALL, little-endian
+        result.append(&mut 1u32.to_le_bytes().to_vec());
+
+        // hash256 and to int
+        BigInt::from_be_bytes(&hash256(&result))
+    }
+
+    // 返回特定输入的签名是否有效
+    pub fn verify_input(&self, input_index: u32) -> bool {
+        // for this input
+        let tx_in = self.inputs[input_index as usize].clone();
+        let mut tx_fetcher = TxFetcher::new();
+        // ScriptSig + ScriptPubkey
+        let combined_sig = (&tx_in).script_sig.clone() + (&tx_in).script_pubkey(&mut tx_fetcher, self.testnet);
+        // get sig_hash for this input and evaluate
+        combined_sig.evaluate(self.sig_hash(input_index))
+    }
+
+    pub fn sign_input(&mut self, input_index: u32, private_key: &PrivateKey) -> bool {
+        // get the signature hash (z)
+        let z = self.sig_hash(input_index);
+
+        // get DER signature of z from private key
+        let signature = private_key.sign(z);
+        let mut der_signature = signature.der();
+
+        // append the SIGHASH_ALL to der, big-edian, only one byte!!!
+        der_signature.append(&mut 1u8.to_be_bytes().to_vec());
+
+        // calculate the sec
+        let sec = private_key.point.sec(private_key.compressed);
+
+        // initialize a new script with [sig, sec] as the cmds
+        let script_sig = Script::new(vec![Command::Element(der_signature), Command::Element(sec)]);
+        self.inputs[input_index as usize].script_sig = script_sig;
+
+        self.verify_input(input_index)
+    }
 }
 
 impl fmt::Display for Tx {
@@ -350,6 +426,8 @@ impl TxFetcher {
 }
 
 mod tests {
+    use crate::utils::decode_base58address;
+
     use super::*;
 
     #[test]
@@ -429,5 +507,36 @@ mod tests {
             tx.outputs[0].script_pubkey
         );
         println!("amount from second output: {}", tx.outputs[1].amount);
+    }
+
+    #[test]
+    pub fn test_ch07_create_sign_tx() {
+        let prev_tx_bytes = decode_hex("0d6fe5213c0b3291f208cba8bfb59b7476dffacc4e5cb66f6eb20a080843a299").unwrap();
+        let prev_index = 13;
+        let tx_in = TxIn::new(prev_tx_bytes, prev_index, None, None);
+
+        let change_amount = (0.33*100000000.0) as u64;
+        let change_h160 = decode_base58address("mzx5YhAH9kNHtcN481u6WkjeHjYtVeKVh2");
+        let change_script = Script::p2pkh_script(change_h160);
+        let change_output = TxOut::new(change_amount, change_script);
+
+        let target_amount = (0.1*100000000.0) as u64;
+        let target_h160 = decode_base58address("mnrVtF8DWjMu839VW3rBfgYaAfKk8983Xf");
+        let target_script = Script::p2pkh_script(target_h160);
+        let target_output = TxOut::new(target_amount, target_script);
+
+        let mut tx = Tx::new(1, vec![tx_in], vec![change_output, target_output], 0, true);
+        println!("tx: {}", tx);
+
+        // sign
+        let private_key = PrivateKey::new(BigInt::from_u32(8675309).unwrap(), true, true);
+        assert!(tx.sign_input(0, &private_key));
+
+        println!("signed tx: {}", tx);
+
+        let want = "0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006a47304402207db2402a3311a3b845b038885e3dd889c08126a8570f26a844e3e4049c482a11022010178cdca4129eacbeab7c44648bf5ac1f9cac217cd609d216ec2ebc8d242c0a012103935581e52c354cd2f484fe8ed83af7a3097005b2f9c60bff71d35bd795f54b67feffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600";
+        // assert!(want == encode_hex(&tx.serialize()));
+        println!("{}", want);
+        println!("{}", encode_hex(&tx.serialize()));
     }
 }

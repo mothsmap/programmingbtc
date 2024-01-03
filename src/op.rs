@@ -732,7 +732,7 @@ pub fn op_checksig(stack: &mut Vec<Vec<u8>>, z: &BigInt) -> bool {
     // the next element of the stack is the der signature
     let mut signature_der = stack.pop().unwrap();
 
-    // take off the last byte of the signature as that's the hash_type
+    // take off the last byte of the signature as that's the hash_type(mostly SIGHASH_ALL)
     signature_der.pop();
     let sig = Signature::from_der(&signature_der);
 

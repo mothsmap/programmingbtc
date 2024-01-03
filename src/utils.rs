@@ -217,6 +217,25 @@ pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
     }
 }
 
+
+pub fn decode_base58address(input: &str) -> Vec<u8> {
+    let bytes = decode_base58(input);
+
+    // 最后4个字节是校验码，去掉
+    let left = &bytes[..bytes.len()-4];
+    let right = &bytes[bytes.len()-4..];
+    if hash256(left)[0..4].to_vec() != right.to_vec() {
+        panic!("bad address!");
+    }
+    // 去掉第一个字节，主网/测试网 flag
+    // 返回的数据是20字节
+    left[1..].to_vec()
+}
+
+pub fn sotachi(btc: f64) -> u64 {
+    (btc * 100000000.0) as u64
+}
+
 mod tests {
     use std::io::Cursor;
 

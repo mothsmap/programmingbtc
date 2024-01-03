@@ -1,30 +1,69 @@
 mod field_element;
-mod point;
+mod field_point;
+mod finite_cyclic_group;
+mod op;
+mod private_key;
+mod script;
+mod signature;
+mod tx;
 mod utils;
 
 use field_element::FieldElement;
-use point::Point;
+use field_point::FieldPoint;
+use tx::{TxIn, TxOut, Tx};
+use script::Script;
+use num::{
+    bigint::{Sign, ToBigInt},
+    traits::ToBytes,
+    BigInt, Num,
+};
+use std::{
+    io::{Cursor, Read},
+    str::FromStr,
+};
 
-use crate::utils::new_bigint;
+use crate::{utils::*, private_key::PrivateKey};
 
 fn main() {
-    println!("Hello, world!");
-    let a = FieldElement::from_i64(0, 223).unwrap();
-    let b = FieldElement::from_i64(7, 223).unwrap();
-    let x1 = FieldElement::from_i64(192, 223).unwrap();
-    let y1 = FieldElement::from_i64(105, 223).unwrap();
-    let x2 = FieldElement::from_i64(17, 223).unwrap();
-    let y2 = FieldElement::from_i64(56, 223).unwrap();
+    println!("Hello, world! Send me some btc from testnet!");
 
-    let p1 = Point::from(Some(x1), Some(y1), a.clone(), b.clone()).unwrap();
-    println!("{}", p1);
-    let p2 = Point::from(Some(x2), Some(y2), a.clone(), b.clone()).unwrap();
-    println!("{}", p2);
+    // first create a Privatekey
+    let passphase = hash256(b"BTC ON TOP!");
+    let private_key = PrivateKey::new(BigInt::from_bytes_le(Sign::Plus, &passphase), true, true);
+    // print address
+    let address = private_key.address();
+    // mx5svndN92FECeadidBqpoSt2kJa6NzFQX
+    println!("My address: {}", address);
 
-    let p3 = p1 + p2;
-    println!("{}", p3);
+    // input transaction
+    // 55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996:1
+    // amount: 0.01706455 
+    // https://live.blockcypher.com/btc-testnet/tx/55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996/
 
-    let p = new_bigint(2).pow(256u32) - new_bigint(2).pow(32u32) - new_bigint(977);
-    println!("{}", p);
-    println!("{:?}", p.to_u32_digits());
+    // spend
+    // return back to facet: https://coinfaucet.eu/en/btc-testnet/
+    // target address: mv4rnyY3Su5gjcDNzbMLKBQkBicCtHUtFB
+    let tx_input = TxIn::new(
+        decode_hex("55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996").unwrap(), 
+        1,
+        None,
+        None,
+    );
+
+    let tx_target = TxOut::new(sotachi(0.002), Script::p2pkh_script(decode_base58address("mv4rnyY3Su5gjcDNzbMLKBQkBicCtHUtFB")));
+    let tx_change = TxOut::new(sotachi(0.012), Script::p2pkh_script(decode_base58address("mx5svndN92FECeadidBqpoSt2kJa6NzFQX")));
+
+    let mut tx = Tx::new(1, vec![tx_input], vec![tx_target, tx_change], 0, true);
+    println!("签名...");
+    if !tx.sign_input(0, &private_key) {
+        println!("签名失败！");
+    }
+
+    println!("{}", tx);
+
+    let tx_hash = tx.serialize();
+    println!("{}", encode_hex(&tx_hash));
+    // using the output tx hex, we can broadcast it at: https://blockstream.info/testnet/tx/push
+    // broadcast tx id: d9d054b19e57688bace987e7ce1525ee1f63d569562103cf0c1e6d029f852c3d
+    // https://live.blockcypher.com/btc-testnet/tx/d9d054b19e57688bace987e7ce1525ee1f63d569562103cf0c1e6d029f852c3d/
 }

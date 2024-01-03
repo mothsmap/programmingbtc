@@ -170,6 +170,16 @@ impl Script {
 
         true
     }
+
+    pub fn p2pkh_script(hash160: Vec<u8>) -> Script {
+        Script::new(vec![
+            Command::OP(0x76), // OP_DUP
+            Command::OP(0xa9), // OP_HASH160
+            Command::Element(hash160),
+            Command::OP(0x88), // OP_EQUALVERIFY
+            Command::OP(0xac), // OP_CHECKSIG
+        ])
+    }
 }
 
 impl fmt::Display for Script {
