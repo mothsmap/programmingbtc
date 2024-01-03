@@ -1,4 +1,7 @@
-use crate::op::{op_code_name, op_operation, Command, decode_num, encode_num};
+use crate::{
+    op::{decode_num, op_code_name, op_operation, Command},
+    utils::encode_hex,
+};
 use anyhow::{bail, Result};
 use num::BigInt;
 use std::{
@@ -73,8 +76,11 @@ impl Script {
 
     // 解析脚本
     pub fn parse<T: Read + Seek>(buffer: &mut T) -> Result<Script> {
+        println!("parse script ...");
+
         // 总共的命令数
         let length = decode_varint(buffer);
+        println!("#cmds = {}", length);
 
         let mut cmds: Vec<Command> = vec![];
         let mut count = 0;
@@ -84,6 +90,7 @@ impl Script {
             count += 1;
 
             let current_number = u8::from_le_bytes(current);
+            // println!("processing byte: {}", current_number);
             if current_number >= 1 && current_number <= 75 {
                 // cmd: element
                 let mut element = vec![0u8; current_number as usize];
@@ -166,10 +173,11 @@ impl Script {
 
 impl fmt::Display for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "script: {}\n", encode_hex(&self.serialize()[1..]))?; // remove first byte(length)
         write!(f, "[")?;
         for cmd in self.commands.clone() {
             match cmd {
-                Command::Element(e) => write!(f, "{}, ", decode_num(e))?,
+                Command::Element(e) => write!(f, "0x{}, ", encode_hex(&e))?,
                 Command::OP(o) => write!(f, "{}, ", op_code_name(o))?,
             };
         }
@@ -182,13 +190,13 @@ mod tests {
 
     use num::{BigInt, Zero};
 
+    use super::Script;
     use crate::{
         op::encode_num,
         script::Command,
-        utils::{decode_hex, encode_hex, bigint_from_hex},
+        utils::{bigint_from_hex, decode_hex, encode_hex},
     };
     use hex_literal::hex;
-    use super::Script;
 
     #[test]
     pub fn test_script_parse() {
@@ -228,8 +236,14 @@ mod tests {
     pub fn test_ch06_exercise3() {
         // OP_DUP, OP_DUP, OP_MUL, OP_ADD, OP_6, OP_EQUAL
         // x*x + x = 6
-        let mut script_pubkey = Script::new(
-            vec![Command::OP(0x76), Command::OP(0x76), Command::OP(0x95), Command::OP(0x93), Command::OP(0x56), Command::OP(0x87)]);
+        let mut script_pubkey = Script::new(vec![
+            Command::OP(0x76),
+            Command::OP(0x76),
+            Command::OP(0x95),
+            Command::OP(0x93),
+            Command::OP(0x56),
+            Command::OP(0x87),
+        ]);
 
         let mut script_sig = Script::new(vec![Command::Element(encode_num(2))]);
         script_sig.add(&mut script_pubkey);
@@ -238,10 +252,10 @@ mod tests {
 
     #[test]
     pub fn test_ch06_exercise4() {
-    //     let commands: Vec<u8> = hex!("6e879169a77ca787").to_vec();
-    //     println!("{:?}", commands);
-    //     let mut cursor = Cursor::new(commands);
-    //     let script = Script::parse(&mut cursor).unwrap();
-    //     println!("script: {}", script);
+        //     let commands: Vec<u8> = hex!("6e879169a77ca787").to_vec();
+        //     println!("{:?}", commands);
+        //     let mut cursor = Cursor::new(commands);
+        //     let script = Script::parse(&mut cursor).unwrap();
+        //     println!("script: {}", script);
     }
 }

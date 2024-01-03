@@ -759,7 +759,7 @@ pub fn op_checkmultisigverify(stack: &mut Vec<Vec<u8>>, z: &BigInt) -> bool {
     op_checkmultisig(stack, z) && op_verify(stack)
 }
 
-pub fn op_checklocktimeverify(stack: &mut Vec<Vec<u8>>, locktime: u64, sequence: u64) -> bool {
+pub fn op_checklocktimeverify(stack: &mut Vec<Vec<u8>>, locktime: u32, sequence: u32) -> bool {
     if sequence == 0xffffffff {
         return false;
     }
@@ -772,7 +772,7 @@ pub fn op_checklocktimeverify(stack: &mut Vec<Vec<u8>>, locktime: u64, sequence:
     if element < 0 {
         return false;
     }
-    let element = element as u64;
+    let element = element as u32;
     if element < 500000000 && locktime > 500000000 {
         return false;
     }
