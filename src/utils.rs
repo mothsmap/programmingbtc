@@ -1,8 +1,13 @@
+use core::time;
 use std::io::{Read, Seek};
 
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
-use num::{bigint::BigInt, traits::ToBytes, FromPrimitive, Integer, ToPrimitive, Zero};
+use num::{
+    bigint::BigInt,
+    traits::{FromBytes, ToBytes},
+    FromPrimitive, Integer, ToPrimitive, Zero,
+};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
@@ -217,13 +222,12 @@ pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
     }
 }
 
-
 pub fn decode_base58address(input: &str) -> Vec<u8> {
     let bytes = decode_base58(input);
 
     // 最后4个字节是校验码，去掉
-    let left = &bytes[..bytes.len()-4];
-    let right = &bytes[bytes.len()-4..];
+    let left = &bytes[..bytes.len() - 4];
+    let right = &bytes[bytes.len() - 4..];
     if hash256(left)[0..4].to_vec() != right.to_vec() {
         panic!("bad address!");
     }
@@ -234,6 +238,52 @@ pub fn decode_base58address(input: &str) -> Vec<u8> {
 
 pub fn sotachi(btc: f64) -> u64 {
     (btc * 100000000.0) as u64
+}
+
+pub fn bits_to_target(bits: &Vec<u8>) -> BigInt {
+    // last byte is exponent
+    let exponent: u8 = bits[3];
+    // the first three bytes are the coefficient in little endian
+    let coefficient = BigInt::from_le_bytes(&bits[0..3].to_vec());
+    // the formula is: coefficient * 256^(exponent - 3)
+    coefficient * BigInt::from_u32(256).unwrap().pow(exponent as u32 - 3u32)
+}
+
+pub fn target_to_bits(target: BigInt) -> Vec<u8> {
+    // TODO: check this method, seems not correct!
+    let raw_bytes = target.to_be_bytes();
+
+    let exponent: u8;
+    let coefficient: Vec<u8>;
+    if raw_bytes[0] > 0x7f {
+        exponent = raw_bytes.len() as u8 + 1u8;
+        coefficient = vec![0, 0, raw_bytes[raw_bytes.len()-2], raw_bytes[raw_bytes.len() - 1]];
+    } else {
+        exponent = raw_bytes.len() as u8;
+        coefficient = raw_bytes[..3].to_vec();
+    };
+    vec![coefficient[2], coefficient[1], coefficient[0], exponent]
+}
+
+pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u64) -> Vec<u8> {
+    // 给定2016个block的时间差，计算新的bits
+    let eight_weeks: u64 = 8 * 7 * 24 * 3600;
+    let two_weeks: u64 = 2 * 7 * 24 * 3600;
+    let half_week: u64 = (0.5 * 24.0 * 3600.0) as u64;
+    // 如果时间差大于8个星期，设置位8个星期
+    if time_differential > eight_weeks {
+        time_differential = eight_weeks;
+    }
+
+    // 如果时间差小于半个星期，设置为半个星期
+    if time_differential < half_week {
+        time_differential = half_week;
+    }
+
+
+    // 新的target = previs_target * time_differential/two_weeks
+    let new_target = bits_to_target(previous_bits) * time_differential / two_weeks;
+    target_to_bits(new_target)
 }
 
 mod tests {

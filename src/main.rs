@@ -1,3 +1,4 @@
+mod block;
 mod field_element;
 mod field_point;
 mod finite_cyclic_group;
@@ -10,19 +11,19 @@ mod utils;
 
 use field_element::FieldElement;
 use field_point::FieldPoint;
-use tx::{TxIn, TxOut, Tx};
-use script::Script;
 use num::{
     bigint::{Sign, ToBigInt},
     traits::ToBytes,
     BigInt, Num,
 };
+use script::Script;
 use std::{
     io::{Cursor, Read},
     str::FromStr,
 };
+use tx::{Tx, TxIn, TxOut};
 
-use crate::{utils::*, private_key::PrivateKey};
+use crate::{private_key::PrivateKey, utils::*};
 
 fn main() {
     println!("Hello, world! Send me some btc from testnet!");
@@ -37,21 +38,27 @@ fn main() {
 
     // input transaction
     // 55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996:1
-    // amount: 0.01706455 
+    // amount: 0.01706455
     // https://live.blockcypher.com/btc-testnet/tx/55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996/
 
     // spend
     // return back to facet: https://coinfaucet.eu/en/btc-testnet/
     // target address: mv4rnyY3Su5gjcDNzbMLKBQkBicCtHUtFB
     let tx_input = TxIn::new(
-        decode_hex("55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996").unwrap(), 
+        decode_hex("55e53207aba6c22ad39c8c1a5eb2ad70ebefb563539497401bdb74419d35e996").unwrap(),
         1,
         None,
         None,
     );
 
-    let tx_target = TxOut::new(sotachi(0.002), Script::p2pkh_script(decode_base58address("mv4rnyY3Su5gjcDNzbMLKBQkBicCtHUtFB")));
-    let tx_change = TxOut::new(sotachi(0.012), Script::p2pkh_script(decode_base58address("mx5svndN92FECeadidBqpoSt2kJa6NzFQX")));
+    let tx_target = TxOut::new(
+        sotachi(0.002),
+        Script::p2pkh_script(decode_base58address("mv4rnyY3Su5gjcDNzbMLKBQkBicCtHUtFB")),
+    );
+    let tx_change = TxOut::new(
+        sotachi(0.012),
+        Script::p2pkh_script(decode_base58address("mx5svndN92FECeadidBqpoSt2kJa6NzFQX")),
+    );
 
     let mut tx = Tx::new(1, vec![tx_input], vec![tx_target, tx_change], 0, true);
     println!("签名...");

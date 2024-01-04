@@ -902,7 +902,7 @@ pub fn op_code_name(code: u8) -> String {
         183 => "OP_NOP8".into(),
         184 => "OP_NOP9".into(),
         185 => "OP_NOP10".into(),
-        _ => panic!("invalid code"),
+        x => format!("UNKNOW_OP{}", x),
     }
 }
 

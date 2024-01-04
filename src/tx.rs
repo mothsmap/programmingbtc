@@ -5,8 +5,8 @@ use crate::utils::{
     bigint_to_bytes, decode_hex, decode_varint, encode_hex, encode_varint, hash256,
 };
 use anyhow::{bail, Result};
-use num::traits::{ToBytes, FromBytes};
-use num::{BigInt, FromPrimitive, Zero};
+use num::traits::{FromBytes, ToBytes};
+use num::{BigInt, FromPrimitive, Zero, ToPrimitive};
 use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::io::{Cursor, Read, Seek};
@@ -21,12 +21,25 @@ pub struct TxIn {
 }
 
 impl TxIn {
-    pub fn new(prev_tx: Vec<u8>, prev_index: u32, script: Option<Script>, sequence: Option<u32>) -> TxIn {
+    pub fn new(
+        prev_tx: Vec<u8>,
+        prev_index: u32,
+        script: Option<Script>,
+        sequence: Option<u32>,
+    ) -> TxIn {
         TxIn {
             prev_tx,
             prev_index,
-            script_sig: if script.is_none() { Script::new(vec![]) } else { script.unwrap() },
-            sequence: if sequence.is_none() { 0xffffffff } else { sequence.unwrap() },
+            script_sig: if script.is_none() {
+                Script::new(vec![])
+            } else {
+                script.unwrap()
+            },
+            sequence: if sequence.is_none() {
+                0xffffffff
+            } else {
+                sequence.unwrap()
+            },
         }
     }
 
@@ -290,10 +303,20 @@ impl Tx {
         for input in &self.inputs {
             let txin = if cnt == input_index {
                 // 替换ScriptPubkey
-                TxIn::new(input.prev_tx.clone(), input.prev_index, Some(input.script_pubkey(&mut tx_fetcher, self.testnet)), Some(input.sequence))
+                TxIn::new(
+                    input.prev_tx.clone(),
+                    input.prev_index,
+                    Some(input.script_pubkey(&mut tx_fetcher, self.testnet)),
+                    Some(input.sequence),
+                )
             } else {
                 // 使用空的ScriptSig
-                TxIn::new(input.prev_tx.clone(), input.prev_index, None, Some(input.sequence))
+                TxIn::new(
+                    input.prev_tx.clone(),
+                    input.prev_index,
+                    None,
+                    Some(input.sequence),
+                )
             };
             result.append(&mut txin.serialize());
             cnt += 1;
@@ -321,7 +344,8 @@ impl Tx {
         let tx_in = self.inputs[input_index as usize].clone();
         let mut tx_fetcher = TxFetcher::new();
         // ScriptSig + ScriptPubkey
-        let combined_sig = (&tx_in).script_sig.clone() + (&tx_in).script_pubkey(&mut tx_fetcher, self.testnet);
+        let combined_sig =
+            (&tx_in).script_sig.clone() + (&tx_in).script_pubkey(&mut tx_fetcher, self.testnet);
         // get sig_hash for this input and evaluate
         combined_sig.evaluate(self.sig_hash(input_index))
     }
@@ -345,6 +369,40 @@ impl Tx {
         self.inputs[input_index as usize].script_sig = script_sig;
 
         self.verify_input(input_index)
+    }
+
+    pub fn is_coinbase(&self) -> bool {
+        // coinbase只有一个输入
+        if self.inputs.len() != 1 {
+            return false;
+        }
+
+        // 获取第一个输入
+        let input = self.inputs[0].clone();
+
+        // 确保第一个输入的prev_tx是32个0字节
+        let want = [0u8; 32];
+        if input.prev_tx != want.to_vec() {
+            return false;
+        }
+
+        // 确保第一个输入的prev_index是0xffffffff
+        if input.prev_index != 0xffffffff {
+            return false;
+        }
+        true
+    }
+
+    pub fn coinbase_height(&self) -> Option<u32> {
+        if !self.is_coinbase() {
+            return None;
+        }
+
+        let first_cmd = &self.inputs[0].script_sig.commands[0];
+        match first_cmd {
+            Command::Element(e) => BigInt::from_le_bytes(e).to_u32(),
+            Command::OP(o) => None
+        }
     }
 }
 
@@ -511,16 +569,17 @@ mod tests {
 
     #[test]
     pub fn test_ch07_create_sign_tx() {
-        let prev_tx_bytes = decode_hex("0d6fe5213c0b3291f208cba8bfb59b7476dffacc4e5cb66f6eb20a080843a299").unwrap();
+        let prev_tx_bytes =
+            decode_hex("0d6fe5213c0b3291f208cba8bfb59b7476dffacc4e5cb66f6eb20a080843a299").unwrap();
         let prev_index = 13;
         let tx_in = TxIn::new(prev_tx_bytes, prev_index, None, None);
 
-        let change_amount = (0.33*100000000.0) as u64;
+        let change_amount = (0.33 * 100000000.0) as u64;
         let change_h160 = decode_base58address("mzx5YhAH9kNHtcN481u6WkjeHjYtVeKVh2");
         let change_script = Script::p2pkh_script(change_h160);
         let change_output = TxOut::new(change_amount, change_script);
 
-        let target_amount = (0.1*100000000.0) as u64;
+        let target_amount = (0.1 * 100000000.0) as u64;
         let target_h160 = decode_base58address("mnrVtF8DWjMu839VW3rBfgYaAfKk8983Xf");
         let target_script = Script::p2pkh_script(target_h160);
         let target_output = TxOut::new(target_amount, target_script);
@@ -538,5 +597,29 @@ mod tests {
         // assert!(want == encode_hex(&tx.serialize()));
         println!("{}", want);
         println!("{}", encode_hex(&tx.serialize()));
+    }
+
+    #[test]
+    pub fn test_is_coinbase() {
+        let raw_tx = decode_hex("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff5e03d71b07254d696e656420627920416e74506f6f6c20626a31312f4542312f4144362f43205914293101fabe6d6d678e2c8c34afc36896e7d9402824ed38e856676ee94bfdb0c6c4bcd8b2e5666a0400000000000000c7270000a5e00e00ffffffff01faf20b58000000001976a914338c84849423992471bffb1a54a8d9b1d69dc28a88ac00000000").unwrap();
+        let mut buffer = Cursor::new(raw_tx);
+        let tx = Tx::parse(&mut buffer, true).unwrap();
+        assert!(tx.is_coinbase());
+    }
+
+    #[test]
+    pub fn test_coinbase_height() {
+        let raw_tx = decode_hex("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff5e03d71b07254d696e656420627920416e74506f6f6c20626a31312f4542312f4144362f43205914293101fabe6d6d678e2c8c34afc36896e7d9402824ed38e856676ee94bfdb0c6c4bcd8b2e5666a0400000000000000c7270000a5e00e00ffffffff01faf20b58000000001976a914338c84849423992471bffb1a54a8d9b1d69dc28a88ac00000000").unwrap();
+        let mut buffer = Cursor::new(raw_tx);
+        let tx = Tx::parse(&mut buffer, true).unwrap();
+        assert!(tx.coinbase_height() == Some(465879));
+
+        let raw_tx = decode_hex("0100000001813f79011acb80925dfe69b3def355fe914bd1d96a3f5f71bf8303c6a989c7d1000000006b483045022100ed81ff192e75a3fd2304004dcadb746fa5e24c5031ccfcf21320b0277457c98f02207a986d955c6e0cb35d446a89d3f56100f4d7f67801c31967743a9c8e10615bed01210349fc4e631e3624a545de3f89f5d8684c7b8138bd94bdd531d2e213bf016b278afeffffff02a135ef01000000001976a914bc3b654dca7e56b04dca18f2566cdaf02e8d9ada88ac99c39800000000001976a9141c4bc762dd5423e332166702cb75f40df79fea1288ac19430600").unwrap();
+        let mut buffer = Cursor::new(raw_tx);
+        let tx = Tx::parse(&mut buffer, true).unwrap();
+        assert!(tx.coinbase_height() == None);
+
+
+
     }
 }
