@@ -1,14 +1,12 @@
 use crate::op::Command;
 use crate::private_key::PrivateKey;
 use crate::script::Script;
-use crate::utils::{
-    bigint_to_bytes, decode_hex, decode_varint, encode_hex, encode_varint, hash256,
-};
-use anyhow::{bail, Result};
-use num::traits::{FromBytes, ToBytes};
-use num::{BigInt, FromPrimitive, Zero, ToPrimitive};
+use crate::utils::{decode_hex, decode_varint, encode_hex, encode_varint, hash256};
+use anyhow::Result;
+use num::traits::FromBytes;
+use num::{BigInt, ToPrimitive};
 use std::collections::HashMap;
-use std::fmt::{self, Display};
+use std::fmt;
 use std::io::{Cursor, Read, Seek};
 
 // 交易输入
@@ -401,7 +399,7 @@ impl Tx {
         let first_cmd = &self.inputs[0].script_sig.commands[0];
         match first_cmd {
             Command::Element(e) => BigInt::from_le_bytes(e).to_u32(),
-            Command::OP(o) => None
+            Command::OP(_) => None,
         }
     }
 }
@@ -432,7 +430,7 @@ impl fmt::Display for Tx {
     }
 }
 
-struct TxFetcher {
+pub struct TxFetcher {
     // tx-hash -> tx
     pub cache: HashMap<String, Tx>,
 }
@@ -483,10 +481,10 @@ impl TxFetcher {
     }
 }
 
+#[allow(unused_imports)]
 mod tests {
-    use crate::utils::decode_base58address;
-
     use super::*;
+    use crate::utils::decode_base58address;
 
     #[test]
     pub fn test_parse_version() {
@@ -618,8 +616,5 @@ mod tests {
         let mut buffer = Cursor::new(raw_tx);
         let tx = Tx::parse(&mut buffer, true).unwrap();
         assert!(tx.coinbase_height() == None);
-
-
-
     }
 }

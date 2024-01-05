@@ -1,29 +1,11 @@
-mod block;
-mod field_element;
-mod field_point;
-mod finite_cyclic_group;
-mod op;
-mod private_key;
-mod script;
-mod signature;
-mod tx;
-mod utils;
-
-use field_element::FieldElement;
-use field_point::FieldPoint;
-use num::{
-    bigint::{Sign, ToBigInt},
-    traits::ToBytes,
-    BigInt, Num,
+use programmingbtc::{
+    private_key::PrivateKey,
+    script::Script,
+    tx::{Tx, TxIn, TxOut},
+    utils::*,
 };
-use script::Script;
-use std::{
-    io::{Cursor, Read},
-    str::FromStr,
-};
-use tx::{Tx, TxIn, TxOut};
 
-use crate::{private_key::PrivateKey, utils::*};
+use num::{bigint::Sign, BigInt};
 
 fn main() {
     println!("Hello, world! Send me some btc from testnet!");

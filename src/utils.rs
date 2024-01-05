@@ -1,6 +1,3 @@
-use core::time;
-use std::io::{Read, Seek};
-
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
 use num::{
@@ -10,6 +7,7 @@ use num::{
 };
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
+use std::io::{Read, Seek};
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn decode_hex(input: &str) -> Result<Vec<u8>> {
@@ -257,7 +255,12 @@ pub fn target_to_bits(target: BigInt) -> Vec<u8> {
     let coefficient: Vec<u8>;
     if raw_bytes[0] > 0x7f {
         exponent = raw_bytes.len() as u8 + 1u8;
-        coefficient = vec![0, 0, raw_bytes[raw_bytes.len()-2], raw_bytes[raw_bytes.len() - 1]];
+        coefficient = vec![
+            0,
+            0,
+            raw_bytes[raw_bytes.len() - 2],
+            raw_bytes[raw_bytes.len() - 1],
+        ];
     } else {
         exponent = raw_bytes.len() as u8;
         coefficient = raw_bytes[..3].to_vec();
@@ -265,11 +268,11 @@ pub fn target_to_bits(target: BigInt) -> Vec<u8> {
     vec![coefficient[2], coefficient[1], coefficient[0], exponent]
 }
 
-pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u64) -> Vec<u8> {
+pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u32) -> Vec<u8> {
     // 给定2016个block的时间差，计算新的bits
-    let eight_weeks: u64 = 8 * 7 * 24 * 3600;
-    let two_weeks: u64 = 2 * 7 * 24 * 3600;
-    let half_week: u64 = (0.5 * 24.0 * 3600.0) as u64;
+    let eight_weeks: u32 = 8 * 7 * 24 * 3600;
+    let two_weeks: u32 = 2 * 7 * 24 * 3600;
+    let half_week: u32 = (0.5 * 24.0 * 3600.0) as u32;
     // 如果时间差大于8个星期，设置位8个星期
     if time_differential > eight_weeks {
         time_differential = eight_weeks;
@@ -280,16 +283,15 @@ pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u64) -
         time_differential = half_week;
     }
 
-
     // 新的target = previs_target * time_differential/two_weeks
     let new_target = bits_to_target(previous_bits) * time_differential / two_weeks;
     target_to_bits(new_target)
 }
 
+#[allow(unused_imports)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     pub fn test_base58() {

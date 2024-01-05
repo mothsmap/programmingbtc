@@ -1,12 +1,8 @@
-use std::io::{Read, Seek};
+use anyhow::Result;
+use num::{traits::FromBytes, BigInt, FromPrimitive};
+use std::io::{Cursor, Read, Seek};
 
-use anyhow::{bail, Result};
-use num::{
-    traits::{FromBytes, ToBytes},
-    BigInt, FromPrimitive,
-};
-
-use crate::utils::{bits_to_target, hash256};
+use crate::utils::{bits_to_target, decode_hex, hash256};
 
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -156,16 +152,27 @@ impl Block {
         let hash = hash256(&bytes);
         BigInt::from_le_bytes(&hash) < self.target()
     }
+
+    pub fn genesis_block(testnet: bool) -> Block {
+        let bytes = match testnet {
+            true => decode_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18").unwrap(),
+            false => decode_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c").unwrap(),
+        };
+        let mut buffer = Cursor::new(bytes);
+        Block::parse(&mut buffer).unwrap()
+    }
+
+    pub fn lowest_bits() -> Vec<u8> {
+        decode_hex("ffff001d").unwrap()
+    }
 }
 
+#[allow(unused_imports)]
 mod tests {
-    use std::io::Cursor;
-
-    use num::{BigInt, FromPrimitive};
-
-    use crate::utils::{bigint_from_hex, decode_hex, encode_hex, Hex};
-
     use super::Block;
+    use crate::utils::{bigint_from_hex, decode_hex, encode_hex, Hex};
+    use num::{BigInt, FromPrimitive};
+    use std::io::Cursor;
 
     #[test]
     pub fn test_parse_block() {

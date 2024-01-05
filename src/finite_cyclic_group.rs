@@ -1,5 +1,7 @@
-use super::*;
+use crate::field_element::FieldElement;
+use crate::field_point::FieldPoint;
 use num::{traits::Euclid, BigInt, FromPrimitive, Zero};
+use std::str::FromStr;
 
 // 有限循环群
 #[derive(Debug, PartialEq, Clone)]
@@ -84,9 +86,9 @@ impl FiniteCyclicGroup {
 
 #[cfg(test)]
 mod tests {
-    use num::{traits::Euclid, FromPrimitive};
-
     use super::*;
+    use crate::utils::Hex;
+    use num::{traits::Euclid, FromPrimitive};
 
     #[test]
     pub fn test_secp256k1_parameters() {

@@ -208,12 +208,8 @@ impl ops::Add<Script> for Script {
     }
 }
 
+#[allow(unused_imports)]
 mod tests {
-    use std::io::Cursor;
-    use std::str;
-
-    use num::{traits::FromBytes, BigInt, Zero};
-
     use super::Script;
     use crate::{
         op::encode_num,
@@ -221,6 +217,9 @@ mod tests {
         utils::{bigint_from_hex, decode_hex, encode_hex},
     };
     use hex_literal::hex;
+    use num::{traits::FromBytes, BigInt, Zero};
+    use std::io::Cursor;
+    use std::str;
 
     #[test]
     pub fn test_script_parse() {

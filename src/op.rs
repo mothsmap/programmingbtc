@@ -1,10 +1,9 @@
-use num::{traits::ToBytes, BigInt};
-
 use crate::{
     field_point::FieldPoint,
     signature::Signature,
-    utils::{bigint_to_hex, hash160, hash256, ripemd160, sha256, Hex},
+    utils::{hash160, hash256, ripemd160, sha256},
 };
+use num::BigInt;
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -53,7 +52,7 @@ pub fn decode_num(element: Vec<u8>) -> i64 {
     let mut big_edian = element.clone();
     big_edian.reverse();
 
-    let mut negative: bool;
+    let negative: bool;
     if big_edian[0] & 0x80 == 1 {
         negative = true;
         result = (big_edian[0] & 0x7f) as i64;
@@ -164,15 +163,15 @@ pub fn op_16(stack: &mut Vec<Vec<u8>>) -> bool {
     true
 }
 
-pub fn op_nop(stack: &mut Vec<Vec<u8>>) -> bool {
+pub fn op_nop(_stack: &mut Vec<Vec<u8>>) -> bool {
     true
 }
 
-pub fn op_if(stack: &mut Vec<Vec<u8>>, items: &mut Vec<Command>) -> bool {
+pub fn op_if(_stack: &mut Vec<Vec<u8>>, _items: &mut Vec<Command>) -> bool {
     false
 }
 
-pub fn op_notif(stack: &mut Vec<Vec<u8>>, items: &mut Vec<Command>) -> bool {
+pub fn op_notif(_stack: &mut Vec<Vec<u8>>, _items: &mut Vec<Command>) -> bool {
     false
 }
 
@@ -189,7 +188,7 @@ pub fn op_verify(stack: &mut Vec<Vec<u8>>) -> bool {
     }
 }
 
-pub fn op_return(stack: &mut Vec<Vec<u8>>) -> bool {
+pub fn op_return(_stack: &mut Vec<Vec<u8>>) -> bool {
     false
 }
 
@@ -686,7 +685,7 @@ pub fn op_ripemd160(stack: &mut Vec<Vec<u8>>) -> bool {
 }
 
 // not implemented
-pub fn op_sha1(stack: &mut Vec<Vec<u8>>) -> bool {
+pub fn op_sha1(_stack: &mut Vec<Vec<u8>>) -> bool {
     return false;
 }
 
@@ -750,7 +749,7 @@ pub fn op_checksigverify(stack: &mut Vec<Vec<u8>>, z: &BigInt) -> bool {
 }
 
 // not implemented
-pub fn op_checkmultisig(stack: &mut Vec<Vec<u8>>, _z: &BigInt) -> bool {
+pub fn op_checkmultisig(_stack: &mut Vec<Vec<u8>>, _z: &BigInt) -> bool {
     false
 }
 
@@ -1003,11 +1002,10 @@ pub fn op_operation(
     }
 }
 
+#[allow(unused_imports)]
 mod tests {
-
-    use crate::utils::{bigint_from_hex, decode_hex, encode_hex};
-
     use super::*;
+    use crate::utils::{bigint_from_hex, decode_hex, encode_hex};
 
     #[test]
     pub fn test_op_hash160() {
