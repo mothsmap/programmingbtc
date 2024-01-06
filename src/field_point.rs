@@ -70,14 +70,26 @@ impl FieldPoint {
                 } else {
                     result.push(3);
                 }
-                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32));
+                result.append(&mut bigint_to_bytes(
+                    &self.x.clone().unwrap().num,
+                    32,
+                    "big",
+                ));
                 result
             }
             false => {
                 // 未压缩格式，以0x04开头
                 result.push(4);
-                result.append(&mut bigint_to_bytes(&self.x.clone().unwrap().num, 32));
-                result.append(&mut bigint_to_bytes(&self.y.clone().unwrap().num, 32));
+                result.append(&mut bigint_to_bytes(
+                    &self.x.clone().unwrap().num,
+                    32,
+                    "big",
+                ));
+                result.append(&mut bigint_to_bytes(
+                    &self.y.clone().unwrap().num,
+                    32,
+                    "big",
+                ));
                 result
             }
         }
@@ -100,7 +112,8 @@ impl FieldPoint {
         let x = BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes[1..33]);
         let x_field = FieldElement::from_bigint(x, prime.clone()).unwrap();
         let mut y_field = match bytes[0] == 4 {
-            true => {
+            false => {
+                // 压缩格式
                 // sec 曲线：y^2 = x^3 + B
                 // 对于压缩格式，我们想求w，已知v以及w^2 = v
                 // w^2 = w^2 * 1 = w^2 * w^(n-1) = w^(n+1)
@@ -109,20 +122,28 @@ impl FieldPoint {
                 let v = x_field.clone().pow(3) + b_field.clone();
                 v.pow((&prime + 1) / 4)
             }
-            false => {
+            true => {
+                // 未压缩格式
                 let y = BigInt::from_bytes_be(num::bigint::Sign::Plus, &bytes[33..65]);
                 FieldElement::from_bigint(y, prime.clone()).unwrap()
             }
         };
 
+        if bytes[0] == 4 {
+            // 未压缩格式可以直接返回了
+            return FieldPoint::from(Some(x_field), Some(y_field), a_field, b_field).unwrap();
+        }
+
+        // 处理压缩格式的情况：
+        // 奇偶指示位
         let even_odd = if bytes[0] == 2 {
-            BigInt::zero()
+            BigInt::zero() // 偶数
         } else {
-            BigInt::one()
+            BigInt::one() // 奇数
         };
 
         y_field = match y_field.num.clone().rem(2) == even_odd {
-            true => y_field,
+            true => y_field, // y的奇偶和需求的一致
             false => FieldElement::from_bigint(&prime - &y_field.num, prime.clone()).unwrap(),
         };
 

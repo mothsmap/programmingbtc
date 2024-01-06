@@ -1,8 +1,6 @@
-use std::fmt;
-
-use num::{traits::Euclid, BigInt};
-
 use crate::{finite_cyclic_group::FiniteCyclicGroup, utils::Hex};
+use num::{traits::Euclid, BigInt};
+use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Signature {
@@ -145,10 +143,10 @@ impl fmt::Display for Signature {
     }
 }
 
+#[allow(unused_imports)]
 mod tests {
-    use crate::utils::{decode_hex, encode_hex};
-
     use super::*;
+    use crate::utils::{decode_hex, encode_hex};
 
     #[test]
     pub fn test_sig_verify() {

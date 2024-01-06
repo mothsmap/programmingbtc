@@ -16,8 +16,8 @@ pub struct PrivateKey {
     pub secret: BigInt,
     pub point: FieldPoint,
     pub group: FiniteCyclicGroup,
-    compressed: bool, // 是否为SEC压缩格式
-    testnet: bool,    // 是否为测试网的地址
+    pub compressed: bool, // 是否为SEC压缩格式
+    pub testnet: bool,    // 是否为测试网的地址
 }
 
 impl PrivateKey {
@@ -32,7 +32,7 @@ impl PrivateKey {
         }
     }
 
-    pub fn sign(self, z: BigInt) -> Signature {
+    pub fn sign(&self, z: BigInt) -> Signature {
         let k = self.deterministic_k(&z);
 
         // r is the x coordinate of kG
@@ -63,8 +63,8 @@ impl PrivateKey {
             z.clone()
         };
 
-        let z_bytes = bigint_to_bytes(&reduced_z, 32);
-        let secret_bytes = bigint_to_bytes(&self.secret, 32);
+        let z_bytes = bigint_to_bytes(&reduced_z, 32, "big");
+        let secret_bytes = bigint_to_bytes(&self.secret, 32, "big");
 
         let mut data1: Vec<u8> = vec![];
         data1.append(&mut v.clone());
@@ -101,7 +101,7 @@ impl PrivateKey {
         let mut bytes: Vec<u8> = if self.testnet { vec![0xef] } else { vec![0x80] };
 
         // 2. serect以大端方式编码为32字节
-        let mut s_bytes = bigint_to_bytes(&self.secret, 32);
+        let mut s_bytes = bigint_to_bytes(&self.secret, 32, "big");
         bytes.append(&mut s_bytes);
 
         // 3.如果public key的sec编码方式是压缩的，添加0x01标记
@@ -181,7 +181,7 @@ mod tests {
 
     use num::FromPrimitive;
 
-    use crate::utils::{hash256, Hex};
+    use crate::utils::{decode_hex, hash256, Hex};
 
     use super::*;
 
@@ -225,16 +225,25 @@ mod tests {
 
         assert!(
             encode_hex(&key.point.sec(false)) == "04ffe558e388852f0120e46af2d1b370f85854a8eb0841811ece0e3e03d282d57c315dc72890a4f10a1481c031b03b351b0dc79901ca18a00cf009dbdb157a1d10");
+        let point = FieldPoint::parse_sec(&decode_hex("04ffe558e388852f0120e46af2d1b370f85854a8eb0841811ece0e3e03d282d57c315dc72890a4f10a1481c031b03b351b0dc79901ca18a00cf009dbdb157a1d10").unwrap());
+        assert!(point.x.unwrap() == key.point.x.unwrap());
+        assert!(point.y.unwrap() == key.point.y.unwrap());
 
         let key = PrivateKey::new(BigInt::from_i64(2018).unwrap().pow(5), true, true);
         assert!(
             encode_hex(&key.point.sec(false)) == "04027f3da1918455e03c46f659266a1bb5204e959db7364d2f473bdf8f0a13cc9dff87647fd023c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06"
         );
+        let point = FieldPoint::parse_sec(&decode_hex("04027f3da1918455e03c46f659266a1bb5204e959db7364d2f473bdf8f0a13cc9dff87647fd023c13b4a4994f17691895806e1b40b57f4fd22581a4f46851f3b06").unwrap());
+        assert!(point.x.unwrap() == key.point.x.unwrap());
+        assert!(point.y.unwrap() == key.point.y.unwrap());
 
         let key = PrivateKey::new(BigInt::from_hex("deadbeef12345"), true, true);
         assert!(
             encode_hex(&key.point.sec(false)) == "04d90cd625ee87dd38656dd95cf79f65f60f7273b67d3096e68bd81e4f5342691f842efa762fd59961d0e99803c61edba8b3e3f7dc3a341836f97733aebf987121"
         );
+        let point = FieldPoint::parse_sec(&decode_hex("04d90cd625ee87dd38656dd95cf79f65f60f7273b67d3096e68bd81e4f5342691f842efa762fd59961d0e99803c61edba8b3e3f7dc3a341836f97733aebf987121").unwrap());
+        assert!(point.x.unwrap() == key.point.x.unwrap());
+        assert!(point.y.unwrap() == key.point.y.unwrap());
     }
 
     #[test]

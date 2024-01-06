@@ -1,8 +1,13 @@
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
-use num::{bigint::BigInt, FromPrimitive, Integer, ToPrimitive, Zero};
+use num::{
+    bigint::BigInt,
+    traits::{FromBytes, ToBytes},
+    FromPrimitive, Integer, ToPrimitive, Zero,
+};
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
+use std::io::{Read, Seek};
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn decode_hex(input: &str) -> Result<Vec<u8>> {
@@ -54,17 +59,22 @@ pub fn bigint_to_hex(input: BigInt) -> Result<String> {
     Ok(encode_hex(bytes.as_slice()))
 }
 
-pub fn bigint_to_bytes(input: &BigInt, bytes: usize) -> Vec<u8> {
+pub fn bigint_to_bytes(input: &BigInt, bytes: usize, endian: &str) -> Vec<u8> {
     // 确保输出bytes位
     // 对于椭圆曲线而言，符号位永远为正
-    let (_, mut data_part) = input.to_bytes_be();
-    if data_part.len() < bytes {
-        let mut result: Vec<u8> = vec![0; 32 - data_part.len()];
-        result.append(&mut data_part);
-        result
-    } else {
-        data_part
+    let (_, mut data_part) = match endian {
+        "big" => input.to_bytes_be(),
+        "little" => input.to_bytes_le(),
+        _ => panic!("invalid endian"),
+    };
+
+    if data_part.len() > bytes {
+        panic!("data not fit to {} bytes", bytes);
     }
+
+    let mut result: Vec<u8> = vec![0; bytes - data_part.len()];
+    result.append(&mut data_part);
+    result
 }
 
 pub fn sha256(data: &[u8]) -> Vec<u8> {
@@ -93,6 +103,13 @@ pub fn hash160(data: &[u8]) -> Vec<u8> {
 
     let mut hasher2 = Ripemd160::new();
     hasher2.update(hash);
+    let hash2 = hasher2.finalize();
+    hash2.to_vec()
+}
+
+pub fn ripemd160(data: &[u8]) -> Vec<u8> {
+    let mut hasher2 = Ripemd160::new();
+    hasher2.update(data);
     let hash2 = hasher2.finalize();
     hash2.to_vec()
 }
@@ -162,8 +179,119 @@ impl Hex for BigInt {
     }
 }
 
+// 整数变长编码
+pub fn encode_varint(num: u64) -> Vec<u8> {
+    let bytes = num.to_le_bytes();
+    if num < 253 {
+        vec![bytes[0]]
+    } else if num < 0x10000 {
+        vec![0xfd, bytes[0], bytes[1]]
+    } else if num < 0x100000000 {
+        vec![0xfe, bytes[0], bytes[1], bytes[2], bytes[3]]
+    } else {
+        // num < 0x10000000000000000
+        vec![
+            0xff, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]
+    }
+}
+
+pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
+    let mut flag = [0u8; 1];
+    buffer.read_exact(&mut flag).unwrap();
+
+    match flag[0] {
+        0xfd => {
+            let mut bytes = [0u8; 2];
+            buffer.read_exact(&mut bytes).unwrap();
+            u16::from_le_bytes(bytes) as u64
+        }
+        0xfe => {
+            let mut bytes = [0u8; 4];
+            buffer.read_exact(&mut bytes).unwrap();
+            u32::from_le_bytes(bytes) as u64
+        }
+        0xff => {
+            let mut bytes = [0u8; 8];
+            buffer.read_exact(&mut bytes).unwrap();
+            u64::from_le_bytes(bytes) as u64
+        }
+        _ => flag[0] as u64,
+    }
+}
+
+pub fn decode_base58address(input: &str) -> Vec<u8> {
+    let bytes = decode_base58(input);
+
+    // 最后4个字节是校验码，去掉
+    let left = &bytes[..bytes.len() - 4];
+    let right = &bytes[bytes.len() - 4..];
+    if hash256(left)[0..4].to_vec() != right.to_vec() {
+        panic!("bad address!");
+    }
+    // 去掉第一个字节，主网/测试网 flag
+    // 返回的数据是20字节
+    left[1..].to_vec()
+}
+
+pub fn sotachi(btc: f64) -> u64 {
+    (btc * 100000000.0) as u64
+}
+
+pub fn bits_to_target(bits: &Vec<u8>) -> BigInt {
+    // last byte is exponent
+    let exponent: u8 = bits[3];
+    // the first three bytes are the coefficient in little endian
+    let coefficient = BigInt::from_le_bytes(&bits[0..3].to_vec());
+    // the formula is: coefficient * 256^(exponent - 3)
+    coefficient * BigInt::from_u32(256).unwrap().pow(exponent as u32 - 3u32)
+}
+
+pub fn target_to_bits(target: BigInt) -> Vec<u8> {
+    // TODO: check this method, seems not correct!
+    let raw_bytes = target.to_be_bytes();
+
+    let exponent: u8;
+    let coefficient: Vec<u8>;
+    if raw_bytes[0] > 0x7f {
+        exponent = raw_bytes.len() as u8 + 1u8;
+        coefficient = vec![
+            0,
+            0,
+            raw_bytes[raw_bytes.len() - 2],
+            raw_bytes[raw_bytes.len() - 1],
+        ];
+    } else {
+        exponent = raw_bytes.len() as u8;
+        coefficient = raw_bytes[..3].to_vec();
+    };
+    vec![coefficient[2], coefficient[1], coefficient[0], exponent]
+}
+
+pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u32) -> Vec<u8> {
+    // 给定2016个block的时间差，计算新的bits
+    let eight_weeks: u32 = 8 * 7 * 24 * 3600;
+    let two_weeks: u32 = 2 * 7 * 24 * 3600;
+    let half_week: u32 = (0.5 * 24.0 * 3600.0) as u32;
+    // 如果时间差大于8个星期，设置位8个星期
+    if time_differential > eight_weeks {
+        time_differential = eight_weeks;
+    }
+
+    // 如果时间差小于半个星期，设置为半个星期
+    if time_differential < half_week {
+        time_differential = half_week;
+    }
+
+    // 新的target = previs_target * time_differential/two_weeks
+    let new_target = bits_to_target(previous_bits) * time_differential / two_weeks;
+    target_to_bits(new_target)
+}
+
+#[allow(unused_imports)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     pub fn test_base58() {
@@ -181,5 +309,17 @@ mod tests {
         let b = "EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7";
         let bytes = decode_hex(x).unwrap();
         assert!(encode_base58(&bytes) == b);
+    }
+
+    #[test]
+    pub fn test_varint() {
+        let x = [100u64, 555, 70015, 18005558675309];
+        let x_hex = ["64", "fd2b02", "fe7f110100", "ff6dc7ed3e60100000"];
+
+        for i in 0usize..4 {
+            let bytes = encode_varint(x[i]);
+            assert!(&encode_hex(&bytes) == x_hex[i]);
+            assert!(decode_varint(&mut Cursor::new(bytes)) == x[i]);
+        }
     }
 }
