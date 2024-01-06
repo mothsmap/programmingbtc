@@ -334,14 +334,20 @@ impl SimpleNode {
     }
 
     pub fn send(&mut self, message: NetworkEnvelope) -> bool {
-        println!("sending: {}", message);
+        println!(
+            "sending: {}",
+            NetworkEnvelope::decode_command(&message.command)
+        );
         self.stream.write(&message.serialize()).unwrap();
         true
     }
 
     pub fn read(&mut self) -> NetworkEnvelope {
         let envelop = NetworkEnvelope::parse(&mut self.stream, self.testnet).unwrap();
-        println!("receiving: {}", envelop);
+        println!(
+            "receiving: {}",
+            NetworkEnvelope::decode_command(&envelop.command)
+        );
         envelop
     }
 
@@ -375,9 +381,9 @@ impl SimpleNode {
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
-    use super::{NetworkEnvelope, SimpleNode};
+    use super::NetworkEnvelope;
     use crate::utils::{decode_hex, encode_hex};
     use std::io::Cursor;
 
@@ -444,11 +450,5 @@ mod tests {
             None,
         );
         assert!(encode_hex(&payload) == "7f11010000000000000000000000000000000000000000000000000000000000000000000000ffff00000000208d000000000000000000000000000000000000ffff00000000208d0000000000000000182f70726f6772616d6d696e67626974636f696e3a302e312f0000000000");
-    }
-
-    #[test]
-    pub fn test_network_envelope_handshake() {
-        let mut node = SimpleNode::new("testnet.programmingbitcoin.com".into(), 18333, true);
-        node.handshake();
     }
 }

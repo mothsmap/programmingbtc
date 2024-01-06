@@ -208,7 +208,7 @@ impl ops::Add<Script> for Script {
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
     use super::Script;
     use crate::{
@@ -216,7 +216,6 @@ mod tests {
         script::Command,
         utils::{bigint_from_hex, decode_hex, encode_hex},
     };
-    use hex_literal::hex;
     use num::{traits::FromBytes, BigInt, Zero};
     use std::io::Cursor;
     use std::str;

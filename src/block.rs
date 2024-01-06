@@ -167,10 +167,10 @@ impl Block {
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
     use super::Block;
-    use crate::utils::{bigint_from_hex, decode_hex, encode_hex, Hex};
+    use crate::utils::{bigint_from_hex, decode_hex};
     use num::{BigInt, FromPrimitive};
     use std::io::Cursor;
 

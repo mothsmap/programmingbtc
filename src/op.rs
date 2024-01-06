@@ -1002,7 +1002,7 @@ pub fn op_operation(
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::{bigint_from_hex, decode_hex, encode_hex};

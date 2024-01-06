@@ -143,7 +143,7 @@ impl fmt::Display for Signature {
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::{decode_hex, encode_hex};

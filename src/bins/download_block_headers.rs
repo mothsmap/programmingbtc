@@ -1,9 +1,9 @@
-use std::io::Cursor;
 use programmingbtc::{
     block::Block,
     network::{NetworkEnvelope, SimpleNode},
     utils::{calculate_new_bits, encode_hex},
 };
+use std::io::Cursor;
 
 fn main() {
     // genesis block on mainnet
@@ -11,11 +11,12 @@ fn main() {
     let mut first_epoch_timestamp = previous.timestamp;
     let mut expected_bits = Block::lowest_bits();
     let mut count = 1;
-    let mut node = SimpleNode::new("mainnet.programmingbtc.com".into(), 8333, false);
-    
+    let mut node = SimpleNode::new("localhost".into(), 8333, false);
+
     if !node.handshake() {
         return;
     }
+    println!("handshake success!");
 
     for _ in 0..19 {
         let msg = NetworkEnvelope::new(
@@ -29,6 +30,7 @@ fn main() {
         let msg = node.wait_for(vec!["headers".into()]);
         let mut buffer = Cursor::new(msg.payload);
         let headers = NetworkEnvelope::parse_headers_message(&mut buffer);
+        println!("#headers: {}", headers.len());
         for header in headers {
             if !header.check_pow() {
                 panic!("bad PoW at block {}", count);
@@ -46,7 +48,12 @@ fn main() {
             }
 
             if header.bits != expected_bits {
-                panic!("bad bits at block: {}", count);
+                panic!(
+                    "bad bits at block: {}: {} vs {}",
+                    count,
+                    encode_hex(&header.bits),
+                    encode_hex(&expected_bits)
+                );
             }
 
             previous = header;

@@ -238,6 +238,7 @@ pub fn sotachi(btc: f64) -> u64 {
     (btc * 100000000.0) as u64
 }
 
+// target是一个很小的数，在256位的数字空间中（256进制），只有一个位被设置。
 pub fn bits_to_target(bits: &Vec<u8>) -> BigInt {
     // last byte is exponent
     let exponent: u8 = bits[3];
@@ -248,19 +249,13 @@ pub fn bits_to_target(bits: &Vec<u8>) -> BigInt {
 }
 
 pub fn target_to_bits(target: BigInt) -> Vec<u8> {
-    // TODO: check this method, seems not correct!
     let raw_bytes = target.to_be_bytes();
 
     let exponent: u8;
     let coefficient: Vec<u8>;
     if raw_bytes[0] > 0x7f {
         exponent = raw_bytes.len() as u8 + 1u8;
-        coefficient = vec![
-            0,
-            0,
-            raw_bytes[raw_bytes.len() - 2],
-            raw_bytes[raw_bytes.len() - 1],
-        ];
+        coefficient = vec![0, raw_bytes[0], raw_bytes[1]];
     } else {
         exponent = raw_bytes.len() as u8;
         coefficient = raw_bytes[..3].to_vec();
@@ -270,10 +265,10 @@ pub fn target_to_bits(target: BigInt) -> Vec<u8> {
 
 pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u32) -> Vec<u8> {
     // 给定2016个block的时间差，计算新的bits
-    let eight_weeks: u32 = 8 * 7 * 24 * 3600;
     let two_weeks: u32 = 2 * 7 * 24 * 3600;
-    let half_week: u32 = (0.5 * 24.0 * 3600.0) as u32;
-    // 如果时间差大于8个星期，设置位8个星期
+    let eight_weeks: u32 = two_weeks * 4;
+    let half_week: u32 = two_weeks / 4 as u32;
+    // 如果时间差大于8个星期，设置为8个星期
     if time_differential > eight_weeks {
         time_differential = eight_weeks;
     }
@@ -284,11 +279,17 @@ pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u32) -
     }
 
     // 新的target = previs_target * time_differential/two_weeks
-    let new_target = bits_to_target(previous_bits) * time_differential / two_weeks;
+    let mut new_target = (bits_to_target(previous_bits) * time_differential)
+        .div_floor(&BigInt::from_u32(two_weeks).unwrap());
+    let max_target = 0xffff * BigInt::from_u32(256).unwrap().pow(0x1d - 3);
+    if new_target > max_target {
+        new_target = max_target;
+    }
+
     target_to_bits(new_target)
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Cursor;
@@ -321,5 +322,15 @@ mod tests {
             assert!(&encode_hex(&bytes) == x_hex[i]);
             assert!(decode_varint(&mut Cursor::new(bytes)) == x[i]);
         }
+    }
+    #[test]
+    pub fn test_bits_to_target() {
+        let bits = decode_hex("e93c0118").unwrap();
+        println!("old bits: {:?}", bits);
+        let target = bits_to_target(&bits);
+        println!("{}", target.to_hex());
+
+        let bits_new = target_to_bits(target);
+        println!("new bits: {:?}", bits_new);
     }
 }

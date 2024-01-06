@@ -88,7 +88,7 @@ impl FiniteCyclicGroup {
 mod tests {
     use super::*;
     use crate::utils::Hex;
-    use num::{traits::Euclid, FromPrimitive};
+    use num::traits::Euclid;
 
     #[test]
     pub fn test_secp256k1_parameters() {

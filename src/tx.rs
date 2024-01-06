@@ -481,10 +481,11 @@ impl TxFetcher {
     }
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::decode_base58address;
+    use num::FromPrimitive;
 
     #[test]
     pub fn test_parse_version() {
