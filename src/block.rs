@@ -2,7 +2,7 @@ use anyhow::Result;
 use num::{traits::FromBytes, BigInt, FromPrimitive};
 use std::io::{Cursor, Read, Seek};
 
-use crate::utils::{bits_to_target, decode_hex, hash256};
+use crate::utils::{bits_to_target, decode_hex, hash256, merkle_root};
 
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -19,6 +19,9 @@ pub struct Block {
     pub bits: Vec<u8>,
     // number-used-only-once
     pub nonce: Vec<u8>,
+
+    // tx hashes
+    pub tx_hashes: Option<Vec<Vec<u8>>>,
 }
 
 impl Block {
@@ -29,6 +32,7 @@ impl Block {
         timestamp: u32,
         bits: Vec<u8>,
         nonce: Vec<u8>,
+        tx_hashes: Option<Vec<Vec<u8>>>,
     ) -> Self {
         Block {
             version,
@@ -37,6 +41,7 @@ impl Block {
             timestamp,
             bits,
             nonce,
+            tx_hashes,
         }
     }
 
@@ -80,6 +85,7 @@ impl Block {
             timestamp,
             bits,
             nonce,
+            tx_hashes: None,
         })
     }
 
@@ -164,6 +170,26 @@ impl Block {
 
     pub fn lowest_bits() -> Vec<u8> {
         decode_hex("ffff001d").unwrap()
+    }
+
+    pub fn validate_merkle_root(&self) -> bool {
+        match &self.tx_hashes {
+            Some(tx_hashes) => {
+                let hashes: Vec<Vec<u8>> = tx_hashes
+                    .iter()
+                    .map(|x| {
+                        let mut y = x.clone();
+                        y.reverse();
+                        y
+                    })
+                    .collect();
+
+                let mut merkle_root = merkle_root(&hashes);
+                merkle_root.reverse();
+                merkle_root == self.merkle_root
+            }
+            None => false,
+        }
     }
 }
 

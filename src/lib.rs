@@ -2,6 +2,7 @@ pub mod block;
 pub mod field_element;
 pub mod field_point;
 pub mod finite_cyclic_group;
+pub mod merkle_block;
 pub mod network;
 pub mod op;
 pub mod private_key;
