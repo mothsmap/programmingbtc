@@ -12,14 +12,71 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
+pub enum BloomFilterDataTyle {
+    TxDataType = 1,
+    BlockDataType = 2,
+    FilteredBlockDataType = 3,
+    CompactBlockDataType = 4,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum NetworkCommand {
+    Version,
+    Verack,
+    Ping,
+    Pong,
+    Getheaders,
+    Headers,
+    Getdata,
+    Filterload,
+    MerkleBlock,
+    Tx,
+}
+
+impl fmt::Display for NetworkCommand {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NetworkCommand::Version => write!(f, "version"),
+            NetworkCommand::Verack => write!(f, "verack"),
+            NetworkCommand::Ping => write!(f, "ping"),
+            NetworkCommand::Pong => write!(f, "pong"),
+            NetworkCommand::Getheaders => write!(f, "getheaders"),
+            NetworkCommand::Headers => write!(f, "headers"),
+            NetworkCommand::Getdata => write!(f, "getdata"),
+            NetworkCommand::Filterload => write!(f, "filterload"),
+            NetworkCommand::MerkleBlock => write!(f, "merkleblock"),
+            NetworkCommand::Tx => write!(f, "tx"),
+        }
+    }
+}
+
+impl From<&str> for NetworkCommand {
+    fn from(cmd: &str) -> Self {
+        match cmd {
+            "version" => NetworkCommand::Version,
+            "verack" => NetworkCommand::Verack,
+            "ping" => NetworkCommand::Ping,
+            "pong" => NetworkCommand::Pong,
+            "getheaders" => NetworkCommand::Getheaders,
+            "headers" => NetworkCommand::Headers,
+            "getdata" => NetworkCommand::Getdata,
+            "filterload" => NetworkCommand::Filterload,
+            "merkleblock" => NetworkCommand::MerkleBlock,
+            "tx" => NetworkCommand::Tx,
+            x => panic!("not recognize command: {}!", x),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NetworkEnvelope {
-    pub command: Vec<u8>,
+    pub command: NetworkCommand,
     pub payload: Vec<u8>,
     pub magic: Vec<u8>,
 }
 
 impl NetworkEnvelope {
-    pub fn new(command: Vec<u8>, payload: Vec<u8>, testnet: bool) -> NetworkEnvelope {
+    pub fn new(command: NetworkCommand, payload: Vec<u8>, testnet: bool) -> NetworkEnvelope {
         NetworkEnvelope {
             command,
             payload,
@@ -85,8 +142,12 @@ impl NetworkEnvelope {
             bail!("checksum not match!")
         }
 
+        println!(
+            "network command: {}",
+            NetworkEnvelope::decode_command(&command).as_str()
+        );
         Ok(NetworkEnvelope {
-            command,
+            command: NetworkCommand::from(NetworkEnvelope::decode_command(&command).as_str()),
             payload,
             magic,
         })
@@ -97,10 +158,10 @@ impl NetworkEnvelope {
         // add network magic
         buffer.append(&mut self.magic.clone());
         // add command
-        let mut command = self.command.clone();
+        let mut command = NetworkEnvelope::encode_command(self.command.to_string());
         // fill 0's
-        if self.command.len() < 12 {
-            let mut zeros: Vec<u8> = vec![0; 12 - self.command.len()];
+        if command.len() < 12 {
+            let mut zeros: Vec<u8> = vec![0; 12 - command.len()];
             command.append(&mut zeros);
         }
         buffer.append(&mut command);
@@ -122,10 +183,6 @@ impl NetworkEnvelope {
 
     pub fn cursor(&self) -> Cursor<Vec<u8>> {
         Cursor::new(self.payload.clone())
-    }
-
-    pub fn command_str(&self) -> String {
-        std::str::from_utf8(&self.command).unwrap().into()
     }
 
     pub fn version_payload(
@@ -275,6 +332,20 @@ impl NetworkEnvelope {
         blocks
     }
 
+    pub fn get_data_payload(data: &Vec<(BloomFilterDataTyle, Vec<u8>)>) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+        // how many items
+        result.append(&mut encode_varint(data.len() as u64));
+
+        for (data_type, identifier) in data {
+            result.append(&mut (data_type.clone() as u32).to_le_bytes().to_vec());
+            let mut identifier_rev = identifier.clone();
+            identifier_rev.reverse();
+            result.append(&mut identifier_rev);
+        }
+        result
+    }
+
     pub fn encode_command(command: String) -> Vec<u8> {
         command.into_bytes()
     }
@@ -289,7 +360,7 @@ impl fmt::Display for NetworkEnvelope {
         write!(
             f,
             "{}: {}",
-            std::str::from_utf8(&self.command).unwrap(),
+            self.command.to_string(),
             encode_hex(&self.payload)
         )
     }
@@ -319,7 +390,7 @@ impl SimpleNode {
     pub fn handshake(&mut self) -> bool {
         // 发送version message
         let msg = NetworkEnvelope::new(
-            NetworkEnvelope::encode_command("version".into()),
+            NetworkCommand::Version,
             NetworkEnvelope::version_payload(
                 None, None, None, None, None, None, None, None, None, None, None, None, None,
             ),
@@ -334,47 +405,44 @@ impl SimpleNode {
     }
 
     pub fn send(&mut self, message: NetworkEnvelope) -> bool {
-        println!(
-            "sending: {}",
-            NetworkEnvelope::decode_command(&message.command)
-        );
+        println!("sending: {}", message.command.to_string());
         self.stream.write(&message.serialize()).unwrap();
         true
     }
 
     pub fn read(&mut self) -> NetworkEnvelope {
         let envelop = NetworkEnvelope::parse(&mut self.stream, self.testnet).unwrap();
-        println!(
-            "receiving: {}",
-            NetworkEnvelope::decode_command(&envelop.command)
-        );
+        println!("receiving: {}", envelop.command.to_string());
         envelop
     }
 
     // 读取commands列表中的一个命令信息
-    pub fn wait_for(&mut self, commands: Vec<String>) -> NetworkEnvelope {
+    pub fn wait_for(&mut self, commands: Vec<NetworkCommand>) -> NetworkEnvelope {
         let mut envelop: NetworkEnvelope;
         loop {
             envelop = self.read();
-            let cmd = NetworkEnvelope::decode_command(&envelop.command);
-            if cmd == "version" {
-                let verack_msg = NetworkEnvelope::new(
-                    NetworkEnvelope::encode_command("verack".into()),
-                    NetworkEnvelope::verack_payload(),
-                    false,
-                );
-                self.send(verack_msg);
-            } else if cmd == "ping" {
-                let pong_msg = NetworkEnvelope::new(
-                    NetworkEnvelope::encode_command("pong".into()),
-                    envelop.payload,
-                    false,
-                );
-                self.send(pong_msg);
-            } else if commands.contains(&cmd) {
-                break;
-            } else {
-                println!("read an unexpect message: {}", cmd);
+            match envelop.command {
+                NetworkCommand::Version => {
+                    let verack_msg = NetworkEnvelope::new(
+                        NetworkCommand::Verack,
+                        NetworkEnvelope::verack_payload(),
+                        false,
+                    );
+                    self.send(verack_msg);
+                }
+                NetworkCommand::Ping => {
+                    let pong_msg =
+                        NetworkEnvelope::new(NetworkCommand::Pong, envelop.payload, false);
+                    self.send(pong_msg);
+                }
+                x => match commands.contains(&x) {
+                    true => {
+                        break;
+                    }
+                    false => {
+                        println!("read an unexpect message: {}", x.to_string());
+                    }
+                },
             }
         }
         envelop
@@ -383,8 +451,11 @@ impl SimpleNode {
 
 #[cfg(test)]
 mod tests {
-    use super::NetworkEnvelope;
-    use crate::utils::{decode_hex, encode_hex};
+    use super::{BloomFilterDataTyle, NetworkEnvelope};
+    use crate::{
+        network::NetworkCommand,
+        utils::{decode_hex, encode_hex},
+    };
     use std::io::Cursor;
 
     #[test]
@@ -392,13 +463,13 @@ mod tests {
         let msg = decode_hex("f9beb4d976657261636b000000000000000000005df6e0e2").unwrap();
         let mut stream = Cursor::new(msg);
         let envelope = NetworkEnvelope::parse(&mut stream, false).unwrap();
-        assert!("verack" == std::str::from_utf8(&envelope.command).unwrap());
+        assert!(NetworkCommand::Verack == envelope.command);
         assert!(envelope.payload.len() == 0);
 
         let msg = decode_hex("f9beb4d976657273696f6e0000000000650000005f1a69d2721101000100000000000000bc8f5e5400000000010000000000000000000000000000000000ffffc61b6409208d010000000000000000000000000000000000ffffcb0071c0208d128035cbc97953f80f2f5361746f7368693a302e392e332fcf05050001").unwrap();
         let mut stream = Cursor::new(msg.clone());
         let envelope = NetworkEnvelope::parse(&mut stream, false).unwrap();
-        assert!("version" == std::str::from_utf8(&envelope.command).unwrap());
+        assert!(NetworkCommand::Version == envelope.command);
         assert!(envelope.payload == msg[24..].to_vec());
     }
 
@@ -450,5 +521,20 @@ mod tests {
             None,
         );
         assert!(encode_hex(&payload) == "7f11010000000000000000000000000000000000000000000000000000000000000000000000ffff00000000208d000000000000000000000000000000000000ffff00000000208d0000000000000000182f70726f6772616d6d696e67626974636f696e3a302e312f0000000000");
+    }
+
+    #[test]
+    pub fn test_network_envelope_get_data_payload() {
+        let hex_msg = "020300000030eb2540c41025690160a1014c577061596e32e426b712c7ca00000000000000030000001049847939585b0652fba793661c361223446b6fc41089b8be00000000000000";
+        let block1 =
+            decode_hex("00000000000000cac712b726e4326e596170574c01a16001692510c44025eb30").unwrap();
+        let block2 =
+            decode_hex("00000000000000beb88910c46f6b442312361c6693a7fb52065b583979844910").unwrap();
+        let data = vec![
+            (BloomFilterDataTyle::FilteredBlockDataType, block1),
+            (BloomFilterDataTyle::FilteredBlockDataType, block2),
+        ];
+        let seri_msg = NetworkEnvelope::get_data_payload(&data);
+        assert!(encode_hex(&seri_msg) == hex_msg);
     }
 }
