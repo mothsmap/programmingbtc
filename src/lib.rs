@@ -1,4 +1,5 @@
 pub mod block;
+pub mod bloom_filter;
 pub mod field_element;
 pub mod field_point;
 pub mod finite_cyclic_group;

@@ -1,9 +1,9 @@
+use crate::utils::{bytes_to_bit_field, decode_varint, encode_hex, merkle_parent};
+use num::traits::Pow;
 use std::{
     fmt,
     io::{Read, Seek},
 };
-use num::traits::Pow;
-use crate::utils::{bytes_to_bit_field, decode_varint, encode_hex, merkle_parent};
 
 // 二维数组实现
 #[derive(Clone, Debug)]

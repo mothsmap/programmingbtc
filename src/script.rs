@@ -1,6 +1,6 @@
 use crate::{
     op::{decode_num, op_code_name, op_operation, Command},
-    utils::encode_hex,
+    utils::{encode_hex, h160_to_p2pkh_address, h160_to_p2sh_address},
 };
 use anyhow::{bail, Result};
 use num::BigInt;
@@ -179,6 +179,68 @@ impl Script {
             Command::OP(0x88), // OP_EQUALVERIFY
             Command::OP(0xac), // OP_CHECKSIG
         ])
+    }
+
+    pub fn is_p2pkh_script_pubkey(&self) -> bool {
+        // returns whether this follows the
+        // OP_DUP OP_HASH160 <20 byte hash> OP_EQUALVERIFY OP_CHECKSIG pattern
+        self.commands.len() == 5
+            && match self.commands[0] {
+                Command::Element(_) => false,
+                Command::OP(o) => o == 0x76,
+            }
+            && match self.commands[1] {
+                Command::Element(_) => false,
+                Command::OP(o) => o == 0xa9,
+            }
+            && match &self.commands[2] {
+                Command::Element(e) => e.len() == 20,
+                Command::OP(_) => false,
+            }
+            && match self.commands[3] {
+                Command::Element(_) => false,
+                Command::OP(o) => o == 0x88,
+            }
+            && match self.commands[4] {
+                Command::Element(_) => false,
+                Command::OP(o) => o == 0xac,
+            }
+    }
+
+    pub fn is_p2sh_script_pubkey(&self) -> bool {
+        // returns whether this follows the
+        // OP_HASH160 <20 byte hash> OP_EQUAL pattern
+        self.commands.len() == 3
+            && match self.commands[0] {
+                Command::Element(_) => false,
+                Command::OP(o) => o == 0xa9,
+            }
+            && match &self.commands[1] {
+                Command::Element(e) => e.len() == 20,
+                Command::OP(_) => false,
+            }
+            && match self.commands[2] {
+                Command::Element(_) => false,
+                Command::OP(o) => o == 0x87,
+            }
+    }
+
+    pub fn address(&self, testnet: bool) -> String {
+        // return the address corresponding to the script
+        if self.is_p2pkh_script_pubkey() {
+            // hash160
+            match self.commands[2].clone() {
+                Command::Element(e) => h160_to_p2pkh_address(&e, testnet),
+                Command::OP(_) => panic!("bad address!"),
+            }
+        } else if self.is_p2sh_script_pubkey() {
+            match self.commands[1].clone() {
+                Command::Element(e) => h160_to_p2sh_address(&e, testnet),
+                Command::OP(_) => panic!("bad address!"),
+            }
+        } else {
+            panic!("unexpect!");
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
+use murmur3::murmur3_32;
 use num::{
     bigint::BigInt,
     traits::{FromBytes, ToBytes},
@@ -7,7 +8,7 @@ use num::{
 };
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
-use std::io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn decode_hex(input: &str) -> Result<Vec<u8>> {
@@ -345,6 +346,94 @@ pub fn bit_field_to_bytes(bit_fields: &Vec<u8>) -> Vec<u8> {
         }
     }
     result
+}
+
+// use crate
+pub fn murmur3(data: &[u8], seed: u32) -> u32 {
+    murmur3_32(&mut Cursor::new(data), seed).unwrap()
+}
+
+// hand craft, should get the same result with fn murmur3
+pub fn murmur3_hash(data: &[u8], seed: BigInt) -> u32 {
+    // from http://stackoverflow.com/questions/13305290/is-there-a-pure-python-implementation-of-murmurhash
+    let c1 = BigInt::from_u64(0xcc9e2d51).unwrap();
+    let c2 = BigInt::from_u64(0x1b873593).unwrap();
+    let length = data.len();
+    let mut h1 = seed;
+    let rounded_end = length & 0xfffffffc; // round down to 4 byte block
+    for i in (0..rounded_end).step_by(4) {
+        // little endian load order
+        let mut k1 = BigInt::from_u64(
+            ((data[i] as u64) & 0xff)
+                | (((data[i + 1] & 0xff) as u64) << 8u64)
+                | (((data[i + 2] & 0xff) as u64) << 16)
+                | ((data[i + 3] as u64) << 24),
+        )
+        .unwrap();
+        k1 *= c1.clone();
+        k1 = (k1.clone() << 15) | ((k1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 17); // ROTL32(k1,15)
+        k1 *= c2.clone();
+        h1 ^= k1.clone();
+        h1 = (h1.clone() << 13) | ((h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 19); // ROTL32(h1,13)
+        h1 = h1 * 5 + BigInt::from_u64(0xe6546b64).unwrap();
+    }
+    // tail
+    let mut k1 = BigInt::from_u64(0u64).unwrap();
+    let val = length & 0x03;
+    if val == 3 {
+        k1 = BigInt::from_u64(((data[rounded_end + 2] & 0xff) as u64) << 16).unwrap();
+    }
+    // fallthrough
+    if val == 2 || val == 3 {
+        k1 |= BigInt::from_u64(((data[rounded_end + 1] & 0xff) as u64) << 8).unwrap();
+    }
+    // fallthrough
+    if val == 1 || val == 2 || val == 3 {
+        k1 |= BigInt::from_u64((data[rounded_end] & 0xff) as u64).unwrap();
+        k1 *= c1;
+        k1 = (k1.clone() << 15) | ((k1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 17); // ROTL32(k1,15)
+        k1 *= c2.clone();
+        h1 ^= k1.clone();
+    }
+    // finalization
+    h1 ^= BigInt::from_u64(length as u64).unwrap();
+    // fmix(h1)
+    h1 ^= (h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 16;
+    h1 *= BigInt::from_u64(0x85ebca6b).unwrap();
+    h1 ^= (h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 13;
+    h1 *= BigInt::from_u64(0xc2b2ae35).unwrap();
+    h1 ^= (h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 16;
+    (h1 & BigInt::from_u64(0xffffffff).unwrap())
+        .to_u32()
+        .unwrap()
+}
+
+pub fn h160_to_p2pkh_address(h160: &Vec<u8>, testnet: bool) -> String {
+    // takes a byte sequece hash160 and returns a p2pksh address string
+    // p2pkh has a prefix of b'\x00' for mainnet, b'\x6f' for testnet
+    let mut bytes = vec![];
+    let prefix = if testnet { b'\x6f' } else { b'\x00' };
+    bytes.push(prefix);
+
+    bytes.append(&mut h160.clone());
+
+    let mut checksum: Vec<u8> = hash256(&bytes).as_slice()[..4].to_vec();
+    bytes.append(&mut checksum);
+    encode_base58(&bytes)
+}
+
+pub fn h160_to_p2sh_address(h160: &Vec<u8>, testnet: bool) -> String {
+    // Takes a byte sequence hash160 and returns a p2sh address string'''
+    // p2sh has a prefix of b'\x05' for mainnet, b'\xc4' for testnet
+    let mut bytes = vec![];
+    let prefix = if testnet { b'\xc4' } else { b'\x05' };
+    bytes.push(prefix);
+
+    bytes.append(&mut h160.clone());
+
+    let mut checksum: Vec<u8> = hash256(&bytes).as_slice()[..4].to_vec();
+    bytes.append(&mut checksum);
+    encode_base58(&bytes)
 }
 
 #[cfg(test)]
