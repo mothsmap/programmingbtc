@@ -1,5 +1,5 @@
 use crate::{
-    op::{decode_num, op_code_name, op_operation, Command},
+    op::{op_code_name, op_operation, Command},
     utils::{encode_hex, h160_to_p2pkh_address, h160_to_p2sh_address},
 };
 use anyhow::{bail, Result};
@@ -49,18 +49,20 @@ impl Script {
                         // 用一个byte表示其长度
                         let mut bytes = (length as u8).to_le_bytes().to_vec();
                         result.append(&mut bytes);
-                    } else if length < 0x100 {
+                    } else if length > 75 && length < 0x100 {
                         // 用1个byte表示其长度,并使用OP_DATA1操作符
                         let mut op_data1_bytes = 76u8.to_le_bytes().to_vec();
                         result.append(&mut op_data1_bytes);
                         let mut bytes = (length as u8).to_le_bytes().to_vec();
                         result.append(&mut bytes);
-                    } else if length < 520 {
+                    } else if length >= 0x100 && length <= 520 {
                         // 用2个byte表示其长度，并使用OP_DATA2操作符
                         let mut op_data2_bytes = 77u8.to_le_bytes().to_vec();
                         result.append(&mut op_data2_bytes);
                         let mut bytes = (length as u16).to_le_bytes().to_vec();
                         result.append(&mut bytes);
+                    } else {
+                        panic!("too long an cmd");
                     }
                     // 序列化数据本身
                     let mut data_bytes = e.clone();
@@ -77,11 +79,8 @@ impl Script {
 
     // 解析脚本
     pub fn parse<T: Read + Seek>(buffer: &mut T) -> Result<Script> {
-        println!("parse script ...");
-
         // 总共的命令数
         let length = decode_varint(buffer);
-        println!("#cmds = {}", length);
 
         let mut cmds: Vec<Command> = vec![];
         let mut count = 0;
@@ -91,7 +90,6 @@ impl Script {
             count += 1;
 
             let current_number = u8::from_le_bytes(current);
-            println!("processing byte: {}", current_number);
             if current_number >= 1 && current_number <= 75 {
                 // cmd: element
                 let mut element = vec![0u8; current_number as usize];
@@ -139,12 +137,9 @@ impl Script {
             let cmd = cmds.remove(0);
             match cmd.clone() {
                 Command::Element(e) => {
-                    println!("push stack: {}", decode_num(e.clone()));
                     stack.push(e);
                 }
                 Command::OP(o) => {
-                    println!("execute op: {}", op_code_name(o));
-
                     if !op_operation(
                         o,
                         &mut stack,
@@ -159,12 +154,14 @@ impl Script {
             }
         }
         if stack.len() == 0 {
+            println!("stack empty");
             return false;
         }
 
         // integer 0 is not stored as the 00 byte, byte empty byte string
         let e = stack.pop().unwrap();
         if e.len() == 0 {
+            println!("stack remains 0");
             return false;
         }
 

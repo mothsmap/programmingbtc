@@ -554,4 +554,22 @@ mod tests {
         assert!(encode_hex(&bit_field_to_bytes(&bit_fields)) == want);
         assert!(bytes_to_bit_field(&decode_hex(want).unwrap()) == bit_fields);
     }
+
+    #[test]
+    pub fn test_p2pkh_address() {
+        let h160 = decode_hex("74d691da1574e6b3c192ecfb52cc8984ee7b6c56").unwrap();
+        let want = "1BenRpVUFK65JFWcQSuHnJKzc4M8ZP8Eqa";
+        assert!(h160_to_p2pkh_address(&h160, false) == want);
+        let want = "mrAjisaT4LXL5MzE81sfcDYKU3wqWSvf9q";
+        assert!(h160_to_p2pkh_address(&h160, true) == want);
+    }
+
+    #[test]
+    pub fn test_p2sh_address() {
+        let h160 = decode_hex("74d691da1574e6b3c192ecfb52cc8984ee7b6c56").unwrap();
+        let want = "3CLoMMyuoDQTPRD3XYZtCvgvkadrAdvdXh";
+        assert!(h160_to_p2sh_address(&h160, false) == want);
+        let want = "2N3u1R6uwQfuobCqbCgBkpsgBxvr1tZpe7B";
+        assert!(h160_to_p2sh_address(&h160, true) == want);
+    }
 }

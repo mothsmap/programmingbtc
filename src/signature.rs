@@ -110,7 +110,7 @@ impl Signature {
         // 编码r，大端法转为bytes，如果第一个byte的第一个bit为1的话（byte >= 0x80）说明r是负数，
         // 需要设置符号标记位0x00，但是对于ecsda签名来说，所有r都是正数
         let (_, mut r_bytes) = self.r.to_bytes_be();
-        if r_bytes[0] >= 0x80 {
+        if r_bytes[0] & 0x80 > 0 {
             result.push(r_bytes.len() as u8 + 1);
             result.push(0);
         } else {
@@ -123,7 +123,7 @@ impl Signature {
 
         // 编码s
         let (_, mut s_bytes) = self.s.to_bytes_be();
-        if s_bytes[0] >= 0x80 {
+        if s_bytes[0] & 0x80 > 0 {
             result.push(s_bytes.len() as u8 + 1);
             result.push(0);
         } else {

@@ -3,6 +3,7 @@ use crate::private_key::PrivateKey;
 use crate::script::Script;
 use crate::utils::{decode_hex, decode_varint, encode_hex, encode_varint, hash256};
 use anyhow::Result;
+use num::bigint::Sign;
 use num::traits::FromBytes;
 use num::{BigInt, ToPrimitive};
 use std::collections::HashMap;
@@ -42,29 +43,23 @@ impl TxIn {
     }
 
     pub fn parse<T: Read + Seek>(buffer: &mut T) -> Result<TxIn> {
-        println!("parse tx input ...");
-
         // 前32byte是上一个交易的哈希，以小端存储
         let mut prev_tx = [0u8; 32];
         buffer.read_exact(&mut prev_tx)?;
         prev_tx.reverse();
-        println!("prev hash: {}", encode_hex(&prev_tx.to_vec()));
 
         // 第几个输出, 4byte整数存储，小端存储
         let mut prev_index_bytes = [0u8; 4];
         buffer.read_exact(&mut prev_index_bytes)?;
         let prev_index = u32::from_le_bytes(prev_index_bytes);
-        println!("prev index: {}", prev_index);
 
         // script_sig
         let script_sig = Script::parse(buffer).unwrap();
-        println!("script: {}", script_sig);
 
         // sequence 4 byte整数，小端存储
         let mut sequence_bytes = [0u8; 4];
         buffer.read_exact(&mut sequence_bytes)?;
         let sequence = u32::from_le_bytes(sequence_bytes);
-        println!("sequence: {}", sequence);
 
         Ok(TxIn {
             prev_tx: prev_tx.to_vec(),
@@ -194,17 +189,13 @@ impl Tx {
     }
 
     pub fn parse<T: Read + Seek>(buffer: &mut T, testnet: bool) -> Result<Tx> {
-        println!("parse tx ...");
-
         // 4 byte little-endian integer
         let mut version_bytes = [0u8; 4];
         buffer.read_exact(&mut version_bytes)?;
         let version = u32::from_le_bytes(version_bytes);
-        println!("version: {}", version);
 
         // inputs
         let inputs = decode_varint(buffer);
-        println!("#inputs = {}", inputs);
         let mut tx_inputs: Vec<TxIn> = vec![];
         for _ in 0..inputs {
             tx_inputs.push(TxIn::parse(buffer).unwrap());
@@ -212,7 +203,6 @@ impl Tx {
 
         // outputs
         let outputs = decode_varint(buffer);
-        println!("#outputs = {}", outputs);
         let mut tx_outputs: Vec<TxOut> = vec![];
         for _ in 0..outputs {
             tx_outputs.push(TxOut::parse(buffer).unwrap());
@@ -222,7 +212,6 @@ impl Tx {
         let mut locktime_bytes = [0u8; 4];
         buffer.read_exact(&mut locktime_bytes)?;
         let locktime = u32::from_le_bytes(locktime_bytes);
-        println!("locktime = {}", locktime);
 
         Ok(Tx {
             version,
@@ -273,13 +262,13 @@ impl Tx {
     }
 
     // 返回交易手续费，单位为satoshi
-    pub fn fee(&self, tx_fetcher: &mut TxFetcher) -> u64 {
-        let mut result = 0;
+    pub fn fee(&self, tx_fetcher: &mut TxFetcher) -> f64 {
+        let mut result = 0.0;
         for input in &self.inputs {
-            result += input.value(tx_fetcher, self.testnet);
+            result += input.value(tx_fetcher, self.testnet) as f64;
         }
         for output in &self.outputs {
-            result -= output.amount;
+            result -= output.amount as f64;
         }
         result
     }
@@ -287,7 +276,7 @@ impl Tx {
     // 获得待签名的hash
     // 返回对于特定input的签名hash代表的数字
     // 签名hash是对tx的序列化进行修改（清空所有input的scriptSig，替换待签名input的SciptPubkey），然后进行hash256操作
-    pub fn sig_hash(&self, input_index: u32) -> BigInt {
+    pub fn sig_hash(&self, input_index: u32, redeem_script: Option<Script>) -> BigInt {
         let mut tx_fetcher = TxFetcher::new();
         let mut result: Vec<u8> = vec![];
 
@@ -301,10 +290,14 @@ impl Tx {
         for input in &self.inputs {
             let txin = if cnt == input_index {
                 // 替换ScriptPubkey
+                let script = match &redeem_script {
+                    Some(s) => s.clone(),
+                    None => input.script_pubkey(&mut tx_fetcher, self.testnet),
+                };
                 TxIn::new(
                     input.prev_tx.clone(),
                     input.prev_index,
-                    Some(input.script_pubkey(&mut tx_fetcher, self.testnet)),
+                    Some(script),
                     Some(input.sequence),
                 )
             } else {
@@ -333,7 +326,24 @@ impl Tx {
         result.append(&mut 1u32.to_le_bytes().to_vec());
 
         // hash256 and to int
-        BigInt::from_be_bytes(&hash256(&result))
+        // 注意，返回的z是正数！！
+        BigInt::from_bytes_be(Sign::Plus, &hash256(&result))
+    }
+
+    pub fn verify(&self) -> bool {
+        let mut tx_fetcher = TxFetcher::new();
+        if self.fee(&mut tx_fetcher) < 0.0 {
+            println!("fee invalid");
+            return false;
+        }
+
+        for i in 0..self.inputs.len() {
+            if !self.verify_input(i as u32) {
+                println!("verify input {} fail", i);
+                return false;
+            }
+        }
+        true
     }
 
     // 返回特定输入的签名是否有效
@@ -341,16 +351,37 @@ impl Tx {
         // for this input
         let tx_in = self.inputs[input_index as usize].clone();
         let mut tx_fetcher = TxFetcher::new();
+        let script_pubkey = (&tx_in).script_pubkey(&mut tx_fetcher, self.testnet);
+        let redeem_script = match script_pubkey.is_p2sh_script_pubkey() {
+            true => {
+                // 锁定脚本是 p2sh
+                match tx_in.script_sig.commands.last().unwrap() {
+                    // 取出脚本
+                    Command::Element(e) => {
+                        let mut raw_redeem = encode_varint(e.len() as u64);
+                        raw_redeem.append(&mut e.clone());
+                        let s = Script::parse(&mut Cursor::new(&mut raw_redeem)).unwrap();
+                        Some(s)
+                    }
+                    Command::OP(_) => panic!("unexpect command"),
+                }
+            }
+            false => {
+                // println!("not p2sh script...");
+                None
+            }
+        };
+
         // ScriptSig + ScriptPubkey
-        let combined_sig =
-            (&tx_in).script_sig.clone() + (&tx_in).script_pubkey(&mut tx_fetcher, self.testnet);
+        let combined_sig = (&tx_in).script_sig.clone() + script_pubkey;
+
         // get sig_hash for this input and evaluate
-        combined_sig.evaluate(self.sig_hash(input_index))
+        combined_sig.evaluate(self.sig_hash(input_index, redeem_script))
     }
 
     pub fn sign_input(&mut self, input_index: u32, private_key: &PrivateKey) -> bool {
         // get the signature hash (z)
-        let z = self.sig_hash(input_index);
+        let z = self.sig_hash(input_index, None);
 
         // get DER signature of z from private key
         let signature = private_key.sign(z);
@@ -452,13 +483,14 @@ impl TxFetcher {
     pub fn fetch(&mut self, tx_id: String, testnet: bool, fresh: bool) -> &Tx {
         if fresh || !self.cache.contains_key(&tx_id) {
             let url = format!("{}/tx/{}/hex", TxFetcher::url(testnet), &tx_id);
-            println!("request tx: {}", url);
+            // println!("request tx: {}", url);
             let response = reqwest::blocking::get(url).unwrap().text().unwrap();
             let bytes = decode_hex(response.trim()).unwrap();
 
             let mut tx: Tx;
             if bytes[4] == 0 {
-                // coinbase tx?
+                // coinbase tx
+                // println!("coin base transaction ...");
                 let mut left = bytes[..4].to_vec();
                 let mut right = bytes[6..].to_vec();
                 left.append(&mut right);
@@ -484,7 +516,7 @@ impl TxFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::decode_base58address;
+    use crate::utils::{decode_base58address, Hex};
     use num::FromPrimitive;
 
     #[test]
@@ -544,13 +576,66 @@ mod tests {
         let mut cursor = Cursor::new(raw_tx);
         let tx = Tx::parse(&mut cursor, false).unwrap();
         let mut tx_fetcher = TxFetcher::new();
-        let f = tx.fee(&mut tx_fetcher);
+        let f = tx.fee(&mut tx_fetcher) as u64;
         assert!(f == 40000);
 
         let raw_tx = decode_hex("010000000456919960ac691763688d3d3bcea9ad6ecaf875df5339e148a1fc61c6ed7a069e010000006a47304402204585bcdef85e6b1c6af5c2669d4830ff86e42dd205c0e089bc2a821657e951c002201024a10366077f87d6bce1f7100ad8cfa8a064b39d4e8fe4ea13a7b71aa8180f012102f0da57e85eec2934a82a585ea337ce2f4998b50ae699dd79f5880e253dafafb7feffffffeb8f51f4038dc17e6313cf831d4f02281c2a468bde0fafd37f1bf882729e7fd3000000006a47304402207899531a52d59a6de200179928ca900254a36b8dff8bb75f5f5d71b1cdc26125022008b422690b8461cb52c3cc30330b23d574351872b7c361e9aae3649071c1a7160121035d5c93d9ac96881f19ba1f686f15f009ded7c62efe85a872e6a19b43c15a2937feffffff567bf40595119d1bb8a3037c356efd56170b64cbcc160fb028fa10704b45d775000000006a47304402204c7c7818424c7f7911da6cddc59655a70af1cb5eaf17c69dadbfc74ffa0b662f02207599e08bc8023693ad4e9527dc42c34210f7a7d1d1ddfc8492b654a11e7620a0012102158b46fbdff65d0172b7989aec8850aa0dae49abfb84c81ae6e5b251a58ace5cfeffffffd63a5e6c16e620f86f375925b21cabaf736c779f88fd04dcad51d26690f7f345010000006a47304402200633ea0d3314bea0d95b3cd8dadb2ef79ea8331ffe1e61f762c0f6daea0fabde022029f23b3e9c30f080446150b23852028751635dcee2be669c2a1686a4b5edf304012103ffd6f4a67e94aba353a00882e563ff2722eb4cff0ad6006e86ee20dfe7520d55feffffff0251430f00000000001976a914ab0c0b2e98b1ab6dbf67d4750b0a56244948a87988ac005a6202000000001976a9143c82d7df364eb6c75be8c80df2b3eda8db57397088ac46430600").unwrap();
         let mut cursor = Cursor::new(raw_tx);
         let tx = Tx::parse(&mut cursor, false).unwrap();
-        assert!(tx.fee(&mut tx_fetcher) == 140500);
+        assert!(tx.fee(&mut tx_fetcher) == 140500.0);
+    }
+
+    #[test]
+    pub fn test_sign_hash() {
+        let mut tx_fetcher = TxFetcher::new();
+        let tx = tx_fetcher.fetch(
+            "452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03".to_owned(),
+            false,
+            true,
+        );
+        let z = tx.sig_hash(0, None);
+        assert!(z.to_hex() == "27e0c5994dec7824e56dec6b2fcb342eb7cdb0d0957c2fce9882f715e85d81a6");
+    }
+
+    #[test]
+    pub fn test_verify_p2pkh() {
+        let mut tx_fetcher = TxFetcher::new();
+        let tx = tx_fetcher.fetch(
+            "452c629d67e41baec3ac6f04fe744b4b9617f8f859c63b3002f8684e7a4fee03".to_owned(),
+            false,
+            false,
+        );
+        assert!(tx.verify());
+
+        let tx = tx_fetcher.fetch(
+            "5418099cc755cb9dd3ebc6cf1a7888ad53a1a3beb5a025bce89eb1bf7f1650a2".to_owned(),
+            true,
+            true,
+        );
+        assert!(tx.verify());
+    }
+
+    #[test]
+    pub fn test_verify_p2sh() {
+        let mut tx_fetcher = TxFetcher::new();
+        let tx = tx_fetcher.fetch(
+            "46df1a9484d0a81d03ce0ee543ab6e1a23ed06175c104a178268fad381216c2b".to_owned(),
+            false,
+            true,
+        );
+        assert!(tx.verify());
+    }
+
+    #[test]
+    pub fn test_sign_input() {
+        let private_key = PrivateKey::new(BigInt::from_u64(8675309).unwrap(), true, true);
+        let stream = decode_hex("010000000199a24308080ab26e6fb65c4eccfadf76749bb5bfa8cb08f291320b3c21e56f0d0d00000000ffffffff02408af701000000001976a914d52ad7ca9b3d096a38e752c2018e6fbc40cdf26f88ac80969800000000001976a914507b27411ccf7f16f10297de6cef3f291623eddf88ac00000000").unwrap();
+        let mut tx_obj = Tx::parse(&mut Cursor::new(&stream), true).unwrap();
+        assert!(tx_obj.sign_input(0, &private_key));
+
+        let want = "010000000199a24308080ab26e6fb65c4eccfadf76749bb5bfa8cb08f291320b3c21e56f0d0d0000006b4830450221008ed46aa2cf12d6d81065bfabe903670165b538f65ee9a3385e6327d80c66d3b502203124f804410527497329ec4715e18558082d489b218677bd029e7fa306a72236012103935581e52c354cd2f484fe8ed83af7a3097005b2f9c60bff71d35bd795f54b67ffffffff02408af701000000001976a914d52ad7ca9b3d096a38e752c2018e6fbc40cdf26f88ac80969800000000001976a914507b27411ccf7f16f10297de6cef3f291623eddf88ac00000000";
+        let get = encode_hex(&tx_obj.serialize());
+        assert!(get == want);
     }
 
     #[test]
