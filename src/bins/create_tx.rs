@@ -42,7 +42,14 @@ fn main() {
         Script::p2pkh_script(decode_base58address("mx5svndN92FECeadidBqpoSt2kJa6NzFQX")),
     );
 
-    let mut tx = Tx::new(1, vec![tx_input], vec![tx_target, tx_change], 0, true);
+    let mut tx = Tx::new(
+        1,
+        vec![tx_input],
+        vec![tx_target, tx_change],
+        0,
+        true,
+        false,
+    );
     println!("签名...");
     if !tx.sign_input(0, &private_key) {
         println!("签名失败！");

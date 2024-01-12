@@ -123,6 +123,13 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 
 const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
+pub fn encode_base58_checksum(bytes: &[u8]) -> String {
+    let mut data = bytes.clone().to_vec();
+    let mut checksum = hash256(&data)[..4].to_vec();
+    data.append(&mut checksum);
+    encode_base58(&data)
+}
+
 pub fn encode_base58(bytes: &[u8]) -> String {
     // 收集前面0的个数,后面需要还原
     let mut count = 0;
@@ -161,8 +168,8 @@ pub fn decode_base58(input: &str) -> Vec<u8> {
         num += index;
     }
 
-    let (_, bytes) = num.to_bytes_be();
-    bytes
+    let (_, ret) = num.to_bytes_be();
+    ret
 }
 
 pub trait Hex {
@@ -222,17 +229,28 @@ pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
 }
 
 pub fn decode_base58address(input: &str) -> Vec<u8> {
-    let bytes = decode_base58(input);
+    let mut bytes = decode_base58(input);
+
+    // 补成25字节
+    if bytes.len() < 25 {
+        let mut result: Vec<u8> = vec![0; 25 - bytes.len()];
+        result.append(&mut bytes);
+        bytes = result;
+    }
 
     // 最后4个字节是校验码，去掉
-    let left = &bytes[..bytes.len() - 4];
-    let right = &bytes[bytes.len() - 4..];
-    if hash256(left)[0..4].to_vec() != right.to_vec() {
-        panic!("bad address!");
+    let data = &bytes[..bytes.len() - 4];
+    let checksum = &bytes[bytes.len() - 4..];
+    if hash256(data)[0..4].to_vec() != checksum.to_vec() {
+        panic!(
+            "bad address! {:?} vs {:?}",
+            checksum.to_vec(),
+            hash256(data)[0..4].to_vec()
+        );
     }
     // 去掉第一个字节，主网/测试网 flag
     // 返回的数据是20字节
-    left[1..].to_vec()
+    data[1..].to_vec()
 }
 
 pub fn sotachi(btc: f64) -> u64 {
@@ -457,6 +475,16 @@ mod tests {
         let b = "EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7";
         let bytes = decode_hex(x).unwrap();
         assert!(encode_base58(&bytes) == b);
+    }
+
+    #[test]
+    pub fn test_decode_base58() {
+        let addr = "mnrVtF8DWjMu839VW3rBfgYaAfKk8983Xf";
+        let h160 = encode_hex(&decode_base58address(addr));
+        assert!(h160 == "507b27411ccf7f16f10297de6cef3f291623eddf");
+        let mut got: Vec<u8> = vec![0x6f];
+        got.append(&mut decode_hex(&h160).unwrap());
+        assert!(encode_base58_checksum(&got) == addr);
     }
 
     #[test]

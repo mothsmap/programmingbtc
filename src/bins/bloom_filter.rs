@@ -118,7 +118,7 @@ pub fn main() {
     let tx_out = TxOut::new(output_amount, target_script);
 
     // create a new transaction with the one input and one output
-    let mut tx = Tx::new(1, vec![tx_in], vec![tx_out], 0, testnet);
+    let mut tx = Tx::new(1, vec![tx_in], vec![tx_out], 0, testnet, false);
 
     // sign the only input
     if !tx.sign_input(0, &private_key) {

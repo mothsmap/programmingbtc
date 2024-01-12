@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_address() {
+    pub fn test_private_key_address() {
         let secret = BigInt::from_i64(5002).unwrap();
         let key = PrivateKey::new(secret, false, true);
         let address = key.address();
