@@ -748,9 +748,71 @@ pub fn op_checksigverify(stack: &mut Vec<Vec<u8>>, z: &BigInt) -> bool {
     op_checksig(stack, z) && op_verify(stack)
 }
 
-// not implemented
-pub fn op_checkmultisig(_stack: &mut Vec<Vec<u8>>, _z: &BigInt) -> bool {
-    false
+// check m-n multisig
+// at least m signagures checked for n public keys
+pub fn op_checkmultisig(stack: &mut Vec<Vec<u8>>, z: &BigInt) -> bool {
+    // scriptPubkey: m <pubkey-1>...<pubkey-n> n op_checkmultisig
+    // scriptSig:  0 <sig-1>...<sig-m>
+    // script = scriptSig + scriptPubkey
+    //        =  0 <sig-1>...<sig-m> m <pubkey-1>...<pubkey-n> n op_checkmultisig
+    // input stack: 0 <sig-1>...<sig-m> m <pubkey-1>...<pubkey-n> n
+    if stack.len() < 1 {
+        return false;
+    }
+
+    // n public keys
+    let n = decode_num(stack.pop().unwrap()) as usize;
+    if stack.len() < n + 1 {
+        return false;
+    }
+
+    let mut sec_pubkeys: Vec<Vec<u8>> = vec![];
+    for _ in 0..n {
+        sec_pubkeys.push(stack.pop().unwrap());
+    }
+
+    // m signatures
+    let m = decode_num(stack.pop().unwrap()) as usize;
+    if stack.len() < m + 1 {
+        return false;
+    }
+
+    let mut der_signatures: Vec<Vec<u8>> = vec![];
+    for _ in 0..m {
+        // take off last byte as that's the hash_type
+        let sig = stack.pop().unwrap();
+        der_signatures.push(sig[0..sig.len() - 1].to_vec());
+    }
+
+    // off-by-one bug
+    stack.pop();
+
+    let signatures: Vec<Signature> = der_signatures
+        .iter()
+        .map(|s| Signature::from_der(s))
+        .collect();
+    let mut points: Vec<FieldPoint> = sec_pubkeys
+        .iter()
+        .map(|s| FieldPoint::parse_sec(s))
+        .collect();
+    for signature in signatures {
+        if points.is_empty() {
+            return false;
+        }
+        // 签名的顺序要和公钥的顺序一致
+        loop {
+            let pubkey = points.remove(0);
+            if signature.verify_bigint(
+                z,
+                &pubkey.x.clone().unwrap().num,
+                &pubkey.y.clone().unwrap().num,
+            ) {
+                break;
+            }
+        }
+    }
+    stack.push(encode_num(1));
+    true
 }
 
 // not implemented
@@ -1024,5 +1086,20 @@ mod tests {
         assert!(op_checksig(&mut stack, &z));
         let ret = decode_num(stack[0].clone());
         assert!(ret == 1);
+    }
+
+    #[test]
+    pub fn test_op_checkmultisig() {
+        let z = bigint_from_hex("e71bfa115715d6fd33796948126f40a8cdd39f187e4afb03896795189fe1423c")
+            .unwrap();
+        let sig1 = decode_hex("3045022100dc92655fe37036f47756db8102e0d7d5e28b3beb83a8fef4f5dc0559bddfb94e02205a36d4e4e6c7fcd16658c50783e00c341609977aed3ad00937bf4ee942a8993701").unwrap();
+        let sig2 = decode_hex("3045022100da6bee3c93766232079a01639d07fa869598749729ae323eab8eef53577d611b02207bef15429dcadce2121ea07f233115c6f09034c0be68db99980b9a6c5e75402201").unwrap();
+        let sec1 = decode_hex("022626e955ea6ea6d98850c994f9107b036b1334f18ca8830bfff1295d21cfdb70")
+            .unwrap();
+        let sec2 = decode_hex("03b287eaf122eea69030a0e9feed096bed8045c8b98bec453e1ffac7fbdbd4bb71")
+            .unwrap();
+        let mut stack: Vec<Vec<u8>> = vec![vec![], sig1, sig2, vec![0x02], sec1, sec2, vec![0x02]];
+        assert!(op_checkmultisig(&mut stack, &z));
+        assert!(decode_num(stack[0].clone()) == 1);
     }
 }

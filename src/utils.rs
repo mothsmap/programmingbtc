@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
+use murmur3::murmur3_32;
 use num::{
     bigint::BigInt,
     traits::{FromBytes, ToBytes},
@@ -7,7 +8,7 @@ use num::{
 };
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
-use std::io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn decode_hex(input: &str) -> Result<Vec<u8>> {
@@ -122,6 +123,13 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 
 const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
+pub fn encode_base58_checksum(bytes: &[u8]) -> String {
+    let mut data = bytes.clone().to_vec();
+    let mut checksum = hash256(&data)[..4].to_vec();
+    data.append(&mut checksum);
+    encode_base58(&data)
+}
+
 pub fn encode_base58(bytes: &[u8]) -> String {
     // 收集前面0的个数,后面需要还原
     let mut count = 0;
@@ -160,8 +168,8 @@ pub fn decode_base58(input: &str) -> Vec<u8> {
         num += index;
     }
 
-    let (_, bytes) = num.to_bytes_be();
-    bytes
+    let (_, ret) = num.to_bytes_be();
+    ret
 }
 
 pub trait Hex {
@@ -221,17 +229,28 @@ pub fn decode_varint<T: Read + Seek>(buffer: &mut T) -> u64 {
 }
 
 pub fn decode_base58address(input: &str) -> Vec<u8> {
-    let bytes = decode_base58(input);
+    let mut bytes = decode_base58(input);
+
+    // 补成25字节
+    if bytes.len() < 25 {
+        let mut result: Vec<u8> = vec![0; 25 - bytes.len()];
+        result.append(&mut bytes);
+        bytes = result;
+    }
 
     // 最后4个字节是校验码，去掉
-    let left = &bytes[..bytes.len() - 4];
-    let right = &bytes[bytes.len() - 4..];
-    if hash256(left)[0..4].to_vec() != right.to_vec() {
-        panic!("bad address!");
+    let data = &bytes[..bytes.len() - 4];
+    let checksum = &bytes[bytes.len() - 4..];
+    if hash256(data)[0..4].to_vec() != checksum.to_vec() {
+        panic!(
+            "bad address! {:?} vs {:?}",
+            checksum.to_vec(),
+            hash256(data)[0..4].to_vec()
+        );
     }
     // 去掉第一个字节，主网/测试网 flag
     // 返回的数据是20字节
-    left[1..].to_vec()
+    data[1..].to_vec()
 }
 
 pub fn sotachi(btc: f64) -> u64 {
@@ -289,6 +308,152 @@ pub fn calculate_new_bits(previous_bits: &Vec<u8>, mut time_differential: u32) -
     target_to_bits(new_target)
 }
 
+pub fn merkle_parent(child_left: &Vec<u8>, child_right: &Vec<u8>) -> Vec<u8> {
+    let mut combined = child_left.clone();
+    combined.append(&mut child_right.clone());
+    hash256(&combined)
+}
+
+pub fn merkle_parent_level(childs: &Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    let mut odd_childs = childs.clone();
+    if childs.len() % 2 == 1 {
+        odd_childs.push(childs.last().unwrap().clone());
+    }
+
+    (0..odd_childs.len())
+        .step_by(2)
+        .map(|i| merkle_parent(&odd_childs[i], &odd_childs[i + 1]))
+        .collect()
+}
+
+pub fn merkle_root(childs: &Vec<Vec<u8>>) -> Vec<u8> {
+    let mut result = childs.clone();
+    loop {
+        if result.len() <= 1 {
+            break;
+        }
+
+        result = merkle_parent_level(&result);
+    }
+    result[0].clone()
+}
+
+pub fn bytes_to_bit_field(bytes: &Vec<u8>) -> Vec<u8> {
+    let mut flag_bits: Vec<u8> = vec![];
+    for b in bytes {
+        let mut bb = b.clone();
+        for _ in 0..8 {
+            flag_bits.push(bb & 1);
+            bb >>= 1;
+        }
+    }
+    flag_bits
+}
+
+pub fn bit_field_to_bytes(bit_fields: &Vec<u8>) -> Vec<u8> {
+    if bit_fields.len() % 8 != 0 {
+        panic!("bit fields does not have a length that is divided by 8");
+    }
+
+    let mut result = vec![0u8; bit_fields.len() / 8];
+    for (index, bit) in bit_fields.iter().enumerate() {
+        let byte_index = index / 8;
+        let bit_index = index % 8;
+        if *bit == 1 {
+            result[byte_index] += 1 << bit_index;
+        }
+    }
+    result
+}
+
+// use crate
+pub fn murmur3(data: &[u8], seed: u32) -> u32 {
+    murmur3_32(&mut Cursor::new(data), seed).unwrap()
+}
+
+// hand craft, should get the same result with fn murmur3
+pub fn murmur3_hash(data: &[u8], seed: BigInt) -> u32 {
+    // from http://stackoverflow.com/questions/13305290/is-there-a-pure-python-implementation-of-murmurhash
+    let c1 = BigInt::from_u64(0xcc9e2d51).unwrap();
+    let c2 = BigInt::from_u64(0x1b873593).unwrap();
+    let length = data.len();
+    let mut h1 = seed;
+    let rounded_end = length & 0xfffffffc; // round down to 4 byte block
+    for i in (0..rounded_end).step_by(4) {
+        // little endian load order
+        let mut k1 = BigInt::from_u64(
+            ((data[i] as u64) & 0xff)
+                | (((data[i + 1] & 0xff) as u64) << 8u64)
+                | (((data[i + 2] & 0xff) as u64) << 16)
+                | ((data[i + 3] as u64) << 24),
+        )
+        .unwrap();
+        k1 *= c1.clone();
+        k1 = (k1.clone() << 15) | ((k1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 17); // ROTL32(k1,15)
+        k1 *= c2.clone();
+        h1 ^= k1.clone();
+        h1 = (h1.clone() << 13) | ((h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 19); // ROTL32(h1,13)
+        h1 = h1 * 5 + BigInt::from_u64(0xe6546b64).unwrap();
+    }
+    // tail
+    let mut k1 = BigInt::from_u64(0u64).unwrap();
+    let val = length & 0x03;
+    if val == 3 {
+        k1 = BigInt::from_u64(((data[rounded_end + 2] & 0xff) as u64) << 16).unwrap();
+    }
+    // fallthrough
+    if val == 2 || val == 3 {
+        k1 |= BigInt::from_u64(((data[rounded_end + 1] & 0xff) as u64) << 8).unwrap();
+    }
+    // fallthrough
+    if val == 1 || val == 2 || val == 3 {
+        k1 |= BigInt::from_u64((data[rounded_end] & 0xff) as u64).unwrap();
+        k1 *= c1;
+        k1 = (k1.clone() << 15) | ((k1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 17); // ROTL32(k1,15)
+        k1 *= c2.clone();
+        h1 ^= k1.clone();
+    }
+    // finalization
+    h1 ^= BigInt::from_u64(length as u64).unwrap();
+    // fmix(h1)
+    h1 ^= (h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 16;
+    h1 *= BigInt::from_u64(0x85ebca6b).unwrap();
+    h1 ^= (h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 13;
+    h1 *= BigInt::from_u64(0xc2b2ae35).unwrap();
+    h1 ^= (h1.clone() & BigInt::from_u64(0xffffffff).unwrap()) >> 16;
+    (h1 & BigInt::from_u64(0xffffffff).unwrap())
+        .to_u32()
+        .unwrap()
+}
+
+pub fn h160_to_p2pkh_address(h160: &Vec<u8>, testnet: bool) -> String {
+    // takes a byte sequece hash160 and returns a p2pksh address string
+    // p2pkh has a prefix of b'\x00' for mainnet, b'\x6f' for testnet
+    let mut bytes = vec![];
+    let prefix = if testnet { b'\x6f' } else { b'\x00' };
+    bytes.push(prefix);
+
+    bytes.append(&mut h160.clone());
+
+    let mut checksum: Vec<u8> = hash256(&bytes).as_slice()[..4].to_vec();
+    bytes.append(&mut checksum);
+    encode_base58(&bytes)
+}
+
+pub fn h160_to_p2sh_address(h160: &Vec<u8>, testnet: bool) -> String {
+    // Takes a byte sequence hash160 and returns a p2sh address string'''
+    // p2sh has a prefix of b'\x05' for mainnet, b'\xc4' for testnet
+    let mut bytes = vec![];
+    let prefix = if testnet { b'\xc4' } else { b'\x05' };
+    bytes.push(prefix);
+
+    bytes.append(&mut h160.clone());
+
+    let mut checksum: Vec<u8> = hash256(&bytes).as_slice()[..4].to_vec();
+    bytes.append(&mut checksum);
+    encode_base58(&bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +478,16 @@ mod tests {
     }
 
     #[test]
+    pub fn test_decode_base58() {
+        let addr = "mnrVtF8DWjMu839VW3rBfgYaAfKk8983Xf";
+        let h160 = encode_hex(&decode_base58address(addr));
+        assert!(h160 == "507b27411ccf7f16f10297de6cef3f291623eddf");
+        let mut got: Vec<u8> = vec![0x6f];
+        got.append(&mut decode_hex(&h160).unwrap());
+        assert!(encode_base58_checksum(&got) == addr);
+    }
+
+    #[test]
     pub fn test_varint() {
         let x = [100u64, 555, 70015, 18005558675309];
         let x_hex = ["64", "fd2b02", "fe7f110100", "ff6dc7ed3e60100000"];
@@ -332,5 +507,97 @@ mod tests {
 
         let bits_new = target_to_bits(target);
         println!("new bits: {:?}", bits_new);
+    }
+
+    #[test]
+    pub fn test_merkle_parent() {
+        let hash0 =
+            decode_hex("c117ea8ec828342f4dfb0ad6bd140e03a50720ece40169ee38bdc15d9eb64cf5").unwrap();
+        let hash1 =
+            decode_hex("c131474164b412e3406696da1ee20ab0fc9bf41c8f05fa8ceea7a08d672d7cc5").unwrap();
+        let parent = merkle_parent(&hash0, &hash1);
+        assert!(
+            encode_hex(&parent)
+                == "8b30c5ba100f6f2e5ad1e2a742e5020491240f8eb514fe97c713c31718ad7ecd"
+        );
+    }
+
+    #[test]
+    pub fn test_merkle_level() {
+        let hex_hashes: Vec<&str> = vec![
+            "c117ea8ec828342f4dfb0ad6bd140e03a50720ece40169ee38bdc15d9eb64cf5",
+            "c131474164b412e3406696da1ee20ab0fc9bf41c8f05fa8ceea7a08d672d7cc5",
+            "f391da6ecfeed1814efae39e7fcb3838ae0b02c02ae7d0a5848a66947c0727b0",
+            "3d238a92a94532b946c90e19c49351c763696cff3db400485b813aecb8a13181",
+            "10092f2633be5f3ce349bf9ddbde36caa3dd10dfa0ec8106bce23acbff637dae",
+        ];
+
+        let hashes: Vec<Vec<u8>> = hex_hashes.iter().map(|x| decode_hex(*x).unwrap()).collect();
+        let parent_level = merkle_parent_level(&hashes);
+        let parent_level_hex: Vec<String> = parent_level.iter().map(|x| encode_hex(x)).collect();
+        assert!(
+            parent_level_hex
+                == vec![
+                    "8b30c5ba100f6f2e5ad1e2a742e5020491240f8eb514fe97c713c31718ad7ecd".to_owned(),
+                    "7f4e6f9e224e20fda0ae4c44114237f97cd35aca38d83081c9bfd41feb907800".to_owned(),
+                    "3ecf6115380c77e8aae56660f5634982ee897351ba906a6837d15ebc3a225df0".to_owned()
+                ]
+        );
+    }
+
+    #[test]
+    pub fn test_merkle_root() {
+        let hex_hashes: Vec<&str> = vec![
+            "c117ea8ec828342f4dfb0ad6bd140e03a50720ece40169ee38bdc15d9eb64cf5",
+            "c131474164b412e3406696da1ee20ab0fc9bf41c8f05fa8ceea7a08d672d7cc5",
+            "f391da6ecfeed1814efae39e7fcb3838ae0b02c02ae7d0a5848a66947c0727b0",
+            "3d238a92a94532b946c90e19c49351c763696cff3db400485b813aecb8a13181",
+            "10092f2633be5f3ce349bf9ddbde36caa3dd10dfa0ec8106bce23acbff637dae",
+            "7d37b3d54fa6a64869084bfd2e831309118b9e833610e6228adacdbd1b4ba161",
+            "8118a77e542892fe15ae3fc771a4abfd2f5d5d5997544c3487ac36b5c85170fc",
+            "dff6879848c2c9b62fe652720b8df5272093acfaa45a43cdb3696fe2466a3877",
+            "b825c0745f46ac58f7d3759e6dc535a1fec7820377f24d4c2c6ad2cc55c0cb59",
+            "95513952a04bd8992721e9b7e2937f1c04ba31e0469fbe615a78197f68f52b7c",
+            "2e6d722e5e4dbdf2447ddecc9f7dabb8e299bae921c99ad5b0184cd9eb8e5908",
+            "b13a750047bc0bdceb2473e5fe488c2596d7a7124b4e716fdd29b046ef99bbf0",
+        ];
+
+        let hashes: Vec<Vec<u8>> = hex_hashes.iter().map(|x| decode_hex(*x).unwrap()).collect();
+        let merkle_root = merkle_root(&hashes);
+        assert!(
+            encode_hex(&merkle_root)
+                == "acbcab8bcc1af95d8d563b77d24c3d19b18f1486383d75a5085c4e86c86beed6".to_owned()
+        );
+    }
+
+    #[test]
+    pub fn test_bit_field_to_bytes() {
+        let bit_fields = vec![
+            0u8, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+        ];
+        let want = "4000600a080000010940";
+
+        assert!(encode_hex(&bit_field_to_bytes(&bit_fields)) == want);
+        assert!(bytes_to_bit_field(&decode_hex(want).unwrap()) == bit_fields);
+    }
+
+    #[test]
+    pub fn test_p2pkh_address() {
+        let h160 = decode_hex("74d691da1574e6b3c192ecfb52cc8984ee7b6c56").unwrap();
+        let want = "1BenRpVUFK65JFWcQSuHnJKzc4M8ZP8Eqa";
+        assert!(h160_to_p2pkh_address(&h160, false) == want);
+        let want = "mrAjisaT4LXL5MzE81sfcDYKU3wqWSvf9q";
+        assert!(h160_to_p2pkh_address(&h160, true) == want);
+    }
+
+    #[test]
+    pub fn test_p2sh_address() {
+        let h160 = decode_hex("74d691da1574e6b3c192ecfb52cc8984ee7b6c56").unwrap();
+        let want = "3CLoMMyuoDQTPRD3XYZtCvgvkadrAdvdXh";
+        assert!(h160_to_p2sh_address(&h160, false) == want);
+        let want = "2N3u1R6uwQfuobCqbCgBkpsgBxvr1tZpe7B";
+        assert!(h160_to_p2sh_address(&h160, true) == want);
     }
 }

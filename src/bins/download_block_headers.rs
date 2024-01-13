@@ -1,6 +1,6 @@
 use programmingbtc::{
     block::Block,
-    network::{NetworkEnvelope, SimpleNode},
+    network::{NetworkCommand, NetworkEnvelope, SimpleNode},
     utils::{calculate_new_bits, encode_hex},
 };
 use std::io::Cursor;
@@ -20,14 +20,14 @@ fn main() {
 
     for _ in 0..19 {
         let msg = NetworkEnvelope::new(
-            NetworkEnvelope::encode_command("getheaders".into()),
+            NetworkCommand::Getheaders,
             NetworkEnvelope::get_headers_payload(None, 1, previous.hash(), None),
             false,
         );
 
         node.send(msg);
 
-        let msg = node.wait_for(vec!["headers".into()]);
+        let msg = node.wait_for(vec![NetworkCommand::Getheaders]);
         let mut buffer = Cursor::new(msg.payload);
         let headers = NetworkEnvelope::parse_headers_message(&mut buffer);
         println!("#headers: {}", headers.len());
