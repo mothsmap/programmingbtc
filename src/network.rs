@@ -19,7 +19,7 @@ pub enum BloomFilterDataTyle {
     CompactBlockDataType = 4,
 }
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NetworkCommand {
     Version,
     Verack,
@@ -30,7 +30,9 @@ pub enum NetworkCommand {
     Getdata,
     Filterload,
     MerkleBlock,
+    Block,
     Tx,
+    Unknown(String),
 }
 
 impl fmt::Display for NetworkCommand {
@@ -46,6 +48,8 @@ impl fmt::Display for NetworkCommand {
             NetworkCommand::Filterload => write!(f, "filterload"),
             NetworkCommand::MerkleBlock => write!(f, "merkleblock"),
             NetworkCommand::Tx => write!(f, "tx"),
+            NetworkCommand::Block => write!(f, "block"),
+            NetworkCommand::Unknown(s) => write!(f, "{}", s),
         }
     }
 }
@@ -63,7 +67,8 @@ impl From<&str> for NetworkCommand {
             "filterload" => NetworkCommand::Filterload,
             "merkleblock" => NetworkCommand::MerkleBlock,
             "tx" => NetworkCommand::Tx,
-            x => panic!("not recognize command: {}!", x),
+            "block" => NetworkCommand::Block,
+            s => NetworkCommand::Unknown(s.to_owned()),
         }
     }
 }
@@ -142,10 +147,10 @@ impl NetworkEnvelope {
             bail!("checksum not match!")
         }
 
-        println!(
-            "network command: {}",
-            NetworkEnvelope::decode_command(&command).as_str()
-        );
+        // println!(
+        //     "network command: {}",
+        //     NetworkEnvelope::decode_command(&command).as_str()
+        // );
         Ok(NetworkEnvelope {
             command: NetworkCommand::from(NetworkEnvelope::decode_command(&command).as_str()),
             payload,
@@ -405,14 +410,14 @@ impl SimpleNode {
     }
 
     pub fn send(&mut self, message: NetworkEnvelope) -> bool {
-        println!("sending: {}", message.command.to_string());
+        // println!("sending: {}", message.command.to_string());
         self.stream.write(&message.serialize()).unwrap();
         true
     }
 
     pub fn read(&mut self) -> NetworkEnvelope {
         let envelop = NetworkEnvelope::parse(&mut self.stream, self.testnet).unwrap();
-        println!("receiving: {}", envelop.command.to_string());
+        // println!("receiving: {}", envelop.command.to_string());
         envelop
     }
 
@@ -421,7 +426,7 @@ impl SimpleNode {
         let mut envelop: NetworkEnvelope;
         loop {
             envelop = self.read();
-            match envelop.command {
+            match &envelop.command {
                 NetworkCommand::Version => {
                     let verack_msg = NetworkEnvelope::new(
                         NetworkCommand::Verack,
@@ -435,11 +440,13 @@ impl SimpleNode {
                         NetworkEnvelope::new(NetworkCommand::Pong, envelop.payload, false);
                     self.send(pong_msg);
                 }
-                x => match commands.contains(&x) {
+                x => match commands.contains(x) {
                     true => {
                         break;
                     }
                     false => {
+                        // println!("commands: {:?}", commands);
+                        // println!("x: {}", x);
                         println!("read an unexpect message: {}", x.to_string());
                     }
                 },

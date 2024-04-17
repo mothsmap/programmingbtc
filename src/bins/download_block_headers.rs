@@ -27,7 +27,7 @@ fn main() {
 
         node.send(msg);
 
-        let msg = node.wait_for(vec![NetworkCommand::Getheaders]);
+        let msg = node.wait_for(vec![NetworkCommand::Headers]);
         let mut buffer = Cursor::new(msg.payload);
         let headers = NetworkEnvelope::parse_headers_message(&mut buffer);
         println!("#headers: {}", headers.len());

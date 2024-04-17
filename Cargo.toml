@@ -17,6 +17,19 @@ path = "src/bins/download_block_headers.rs"
 name = "bloom_filter"
 path = "src/bins/bloom_filter.rs"
 
+[[bin]]
+name = "process_block"
+path = "src/bins/process_block.rs"
+
+[[bin]]
+name = "download_block_data"
+path = "src/bins/download_block_data.rs"
+
+[[bin]]
+name = "deploy_rune"
+path = "src/bins/deploy_rune.rs"
+
+
 [dependencies]
 anyhow = "1.0"
 num = { version = "0.4.1", features = ["num-bigint", "rand"] }
@@ -27,3 +40,4 @@ ripemd = "0.1.3"
 hex-literal = "0.4.1"
 rand = "0.8.5"
 murmur3 = "0.5.2"
+chrono = "0.4.34"
